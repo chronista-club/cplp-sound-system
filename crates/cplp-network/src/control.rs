@@ -3,10 +3,13 @@
 //! REQ-NET-003: QUIC 上の独立チャネルによるオーディオ/コントロール分離
 //! REQ-MIXER-001: 共有ミキサー状態の同期
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 
-use cplp_core::{MixerState, PeerId, TrackState};
+use cplp_core::{CplpError, MixerState, PeerId, TrackState};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
+use unison::UnisonChannel;
 
 /// control チャネルイベント（全ピア間で送受信）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +89,57 @@ impl ControlHandler {
             _ => {} // LatencyReport, PluginInfo, PluginChanged はミキサーに影響しない
         }
     }
+
+    /// 全ピアに ControlEvent を broadcast
+    pub async fn broadcast(
+        channels: &HashMap<PeerId, UnisonChannel>,
+        event: &ControlEvent,
+    ) -> Result<(), CplpError> {
+        let json = serde_json::to_value(event)
+            .map_err(|e| CplpError::Network(format!("Serialize error: {}", e)))?;
+        for (peer_id, ch) in channels {
+            if let Err(e) = ch.send_event("control", json.clone()).await {
+                tracing::warn!("Control send failed to {}: {}", peer_id, e);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// 1ピアからの control イベントを受信するループ
+///
+/// 各ピアにつき1つの受信ループが起動される。
+/// 受信したイベントは event_tx に送信し、呼び出し側が apply_event() する。
+pub async fn run_control_recv_loop(
+    peer_id: PeerId,
+    channel: UnisonChannel,
+    event_tx: mpsc::Sender<(PeerId, ControlEvent)>,
+) -> Result<(), CplpError> {
+    loop {
+        match channel.recv().await {
+            Ok(msg) => match msg.payload_as_value() {
+                Ok(value) => match serde_json::from_value::<ControlEvent>(value) {
+                    Ok(event) => {
+                        if event_tx.send((peer_id.clone(), event)).await.is_err() {
+                            tracing::debug!("Control event queue closed for {}", peer_id);
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!("Invalid control event from {}: {}", peer_id, e);
+                    }
+                },
+                Err(e) => {
+                    tracing::warn!("Invalid control message from {}: {}", peer_id, e);
+                }
+            },
+            Err(e) => {
+                tracing::info!("Control channel closed for {}: {}", peer_id, e);
+                break;
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
