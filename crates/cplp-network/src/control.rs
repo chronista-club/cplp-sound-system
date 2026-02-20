@@ -1,6 +1,164 @@
-/// ControlHandler: 制御メッセージの処理
+//! ControlHandler: ミキサー制御 + セッション管理
+//!
+//! REQ-NET-003: QUIC 上の独立チャネルによるオーディオ/コントロール分離
+//! REQ-MIXER-001: 共有ミキサー状態の同期
+
+use std::net::SocketAddr;
+
+use cplp_core::{MixerState, PeerId, TrackState};
+use serde::{Deserialize, Serialize};
+
+/// control チャネルイベント（全ピア間で送受信）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ControlEvent {
+    // ── ミキサー操作 ──
+    FaderChange { track: PeerId, volume: f32, ts: u64 },
+    PanChange { track: PeerId, pan: f32, ts: u64 },
+    MuteToggle { track: PeerId, mute: bool, ts: u64 },
+    SoloToggle { track: PeerId, solo: bool, ts: u64 },
+    MasterVol { volume: f32, ts: u64 },
+
+    // ── セッション管理 ──
+    PeerJoined { peer: PeerId, addr: SocketAddr, label: String },
+    PeerLeft { peer: PeerId },
+    /// 途中参加者へのミキサー全状態同期
+    MixerSync { state: MixerState },
+
+    // ── モニタリング ──
+    LatencyReport { rtt_us: u64, jitter_us: u64 },
+
+    // ── プラグイン情報 ──
+    PluginInfo { name: String, vendor: String },
+    PluginChanged { name: String, vendor: String },
+}
+
+/// ControlHandler: control チャネルの処理
 ///
-/// REQ-NET-003: QUIC 上の独立チャネルによるオーディオ/コントロール分離
+/// 各ピアとの control チャネルを管理し、
+/// ミキサーイベントの送受信と MixerState の更新を行う。
 pub struct ControlHandler {
-    // TODO: control/session チャネルの処理
+    mixer_state: MixerState,
+}
+
+impl ControlHandler {
+    pub fn new() -> Self {
+        Self {
+            mixer_state: MixerState::new(),
+        }
+    }
+
+    pub fn mixer_state(&self) -> &MixerState {
+        &self.mixer_state
+    }
+
+    pub fn mixer_state_mut(&mut self) -> &mut MixerState {
+        &mut self.mixer_state
+    }
+
+    /// 受信した ControlEvent をローカルの MixerState に適用
+    pub fn apply_event(&mut self, event: &ControlEvent) {
+        match event {
+            ControlEvent::FaderChange { track, volume, ts } => {
+                self.mixer_state.apply_fader(track, *volume, *ts);
+            }
+            ControlEvent::PanChange { track, pan, ts } => {
+                self.mixer_state.apply_pan(track, *pan, *ts);
+            }
+            ControlEvent::MuteToggle { track, mute, ts } => {
+                self.mixer_state.apply_mute(track, *mute, *ts);
+            }
+            ControlEvent::SoloToggle { track, solo, ts } => {
+                self.mixer_state.apply_solo(track, *solo, *ts);
+            }
+            ControlEvent::MasterVol { volume, ts } => {
+                self.mixer_state.apply_master(*volume, *ts);
+            }
+            ControlEvent::PeerJoined { peer, label, .. } => {
+                self.mixer_state.add_track(peer.clone(), TrackState::new(label));
+            }
+            ControlEvent::PeerLeft { peer } => {
+                self.mixer_state.remove_track(peer);
+            }
+            ControlEvent::MixerSync { state } => {
+                self.mixer_state = state.clone();
+            }
+            _ => {} // LatencyReport, PluginInfo, PluginChanged はミキサーに影響しない
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cplp_core::{MixerState, PeerId, TrackState};
+
+    #[test]
+    fn test_control_event_serialization() {
+        let event = ControlEvent::FaderChange {
+            track: PeerId::new("player-a"),
+            volume: 0.8,
+            ts: 12345,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("FaderChange"));
+        assert!(json.contains("player-a"));
+
+        let decoded: ControlEvent = serde_json::from_str(&json).unwrap();
+        if let ControlEvent::FaderChange { track, volume, ts } = decoded {
+            assert_eq!(track, PeerId::new("player-a"));
+            assert!((volume - 0.8).abs() < f32::EPSILON);
+            assert_eq!(ts, 12345);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_mixer_sync_serialization() {
+        let mut state = MixerState::new();
+        state.add_track(PeerId::new("p1"), TrackState::new("Synth"));
+        let event = ControlEvent::MixerSync { state };
+        let json = serde_json::to_string(&event).unwrap();
+        let decoded: ControlEvent = serde_json::from_str(&json).unwrap();
+        if let ControlEvent::MixerSync { state } = decoded {
+            assert_eq!(state.tracks.len(), 1);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_apply_event_fader() {
+        let mut handler = ControlHandler::new();
+        let peer = PeerId::new("p1");
+        handler.mixer_state_mut().add_track(peer.clone(), TrackState::new("Bass"));
+
+        let event = ControlEvent::FaderChange { track: peer.clone(), volume: 0.7, ts: 100 };
+        handler.apply_event(&event);
+        assert_eq!(handler.mixer_state().tracks[&peer].volume, 0.7);
+    }
+
+    #[test]
+    fn test_apply_event_peer_joined() {
+        let mut handler = ControlHandler::new();
+        let event = ControlEvent::PeerJoined {
+            peer: PeerId::new("p1"),
+            addr: "[::1]:5000".parse().unwrap(),
+            label: "Guitar".to_string(),
+        };
+        handler.apply_event(&event);
+        assert_eq!(handler.mixer_state().tracks.len(), 1);
+    }
+
+    #[test]
+    fn test_apply_event_peer_left() {
+        let mut handler = ControlHandler::new();
+        let peer = PeerId::new("p1");
+        handler.mixer_state_mut().add_track(peer.clone(), TrackState::new("Synth"));
+
+        let event = ControlEvent::PeerLeft { peer: peer.clone() };
+        handler.apply_event(&event);
+        assert!(handler.mixer_state().tracks.is_empty());
+    }
 }
