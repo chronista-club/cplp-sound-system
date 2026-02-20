@@ -5,6 +5,7 @@ members = [
     "crates/cplp-network",
     "crates/cplp-session",
     "crates/cplp-app",
+    "crates/cplp-lobby",
 ]
 resolver = "2"
 
@@ -53,3 +54,18 @@ midir = "0.10"
 # ロギング
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP サーバー
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# データベース
+surrealdb = { version = "2", features = ["kv-mem"] }
+
+# 認証
+oauth2 = "5"
+jsonwebtoken = "9"
+
+# ユーティリティ
+uuid = { version = "1", features = ["v4"] }
