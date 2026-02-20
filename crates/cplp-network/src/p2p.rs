@@ -5,10 +5,17 @@
 //! N ピア対応: HashMap<PeerId, PeerConnection> でフルメッシュ管理
 
 use std::collections::HashMap;
+use std::fmt;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use cplp_core::{CplpError, MixerState, PeerId, PeerStatus, TrackState};
 use tokio::sync::{mpsc, watch};
+use unison::network::context::ConnectionContext;
+use unison::network::UnisonStream;
+use unison::{
+    ConnectionEvent, ProtocolClient, ProtocolServer, ServerHandle, UnisonChannel,
+};
 
 use crate::audio_channel::AudioStreamer;
 
@@ -34,11 +41,27 @@ pub enum P2pState {
     Disconnecting,
 }
 
+/// ピアとの通信チャネルペア
+pub struct PeerChannels {
+    pub audio: UnisonChannel,
+    pub control: UnisonChannel,
+}
+
 /// ピア接続情報
-#[derive(Debug, Clone)]
 pub struct PeerConnection {
     pub addr: SocketAddr,
     pub status: PeerStatus,
+    pub channels: Option<PeerChannels>,
+}
+
+impl fmt::Debug for PeerConnection {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PeerConnection")
+            .field("addr", &self.addr)
+            .field("status", &self.status)
+            .field("channels", &self.channels.as_ref().map(|_| "..."))
+            .finish()
+    }
 }
 
 /// P2P 接続イベント
@@ -76,10 +99,8 @@ pub struct P2pManager {
     /// イベント通知
     event_tx: mpsc::Sender<P2pEvent>,
     event_rx: Option<mpsc::Receiver<P2pEvent>>,
-    // TODO: Unison API 確定後に追加
-    // server: ProtocolServer,
-    // client: ProtocolClient,
-    // server_handle: Option<ServerHandle>,
+    /// Unison サーバーハンドル
+    server_handle: Option<ServerHandle>,
 }
 
 impl P2pManager {
@@ -99,6 +120,7 @@ impl P2pManager {
             state_rx,
             event_tx,
             event_rx: Some(event_rx),
+            server_handle: None,
         }
     }
 
@@ -144,6 +166,7 @@ impl P2pManager {
             PeerConnection {
                 addr,
                 status: PeerStatus::Connected,
+                channels: None,
             },
         );
         self.mixer_state
@@ -178,15 +201,71 @@ impl P2pManager {
             )));
         }
 
-        // TODO: Unison spawn_listen() 確定後に実装
-        // let mut server = ProtocolServer::with_identity("cplp", "0.1.0", "club.chronista.cplp");
-        // server.register_channel("audio", audio_handler).await;
-        // server.register_channel("control", control_handler).await;
-        // server.register_channel("session", session_handler).await;
-        // self.server_handle = Some(server.spawn_listen(&self.listen_addr.to_string()).await?);
+        let server = ProtocolServer::with_identity("cplp", "0.2.0", "club.chronista.cplp");
 
-        tracing::info!("P2P server starting on {}", self.listen_addr);
+        // チャネルハンドラー登録（Phase 2 で本格的にストリーム受け渡しを実装）
+        server
+            .register_channel(
+                "audio",
+                |_ctx: Arc<ConnectionContext>, stream: UnisonStream| async move {
+                    let _channel = UnisonChannel::new(stream);
+                    tracing::info!("Incoming audio channel accepted");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+                    Ok(())
+                },
+            )
+            .await;
+
+        server
+            .register_channel(
+                "control",
+                |_ctx: Arc<ConnectionContext>, stream: UnisonStream| async move {
+                    let _channel = UnisonChannel::new(stream);
+                    tracing::info!("Incoming control channel accepted");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(3600)).await;
+                    Ok(())
+                },
+            )
+            .await;
+
+        // 接続イベントを購読（spawn_listen 前に取得）
+        let mut conn_rx = server.subscribe_connection_events().await;
+
+        // サーバー起動（spawn_listen は self を consume する）
+        let listen_str = format!("[::]:{}",self.listen_addr.port());
+        let handle = server
+            .spawn_listen(&listen_str)
+            .await
+            .map_err(|e| CplpError::Network(format!("Unison server start failed: {}", e)))?;
+
+        tracing::info!("P2P server listening on {}", handle.local_addr());
+        self.server_handle = Some(handle);
         self.transition(P2pState::ServerStarted);
+
+        // バックグラウンドタスク: 接続イベントを P2pEvent に転送
+        let event_tx = self.event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(event) = conn_rx.recv().await {
+                match event {
+                    ConnectionEvent::Connected { remote_addr, .. } => {
+                        let _ = event_tx
+                            .send(P2pEvent::PeerConnected {
+                                peer_id: PeerId::new(&remote_addr.to_string()),
+                                addr: remote_addr,
+                            })
+                            .await;
+                    }
+                    ConnectionEvent::Disconnected { remote_addr } => {
+                        let _ = event_tx
+                            .send(P2pEvent::PeerDisconnected {
+                                peer_id: PeerId::new(&remote_addr.to_string()),
+                            })
+                            .await;
+                    }
+                }
+            }
+        });
+
         Ok(())
     }
 
@@ -206,21 +285,43 @@ impl P2pManager {
             )));
         }
 
-        tracing::info!("Connecting to peer: {} ({})", peer_id, peer_addr);
+        tracing::info!("Connecting to peer: {} at {}", peer_id, peer_addr);
 
-        // TODO: Unison API 確定後に実装
-        // let mut client = ProtocolClient::new_default()?;
-        // client.connect(&peer_addr.to_string()).await?;
-        // let audio_ch = client.open_channel("audio").await?;
-        // let control_ch = client.open_channel("control").await?;
-        // let session_ch = client.open_channel("session").await?;
+        let mut client = ProtocolClient::new_default()
+            .map_err(|e| CplpError::Network(format!("Client creation failed: {}", e)))?;
+
+        let addr_str = format!("[::1]:{}", peer_addr.port());
+        client
+            .connect(&addr_str)
+            .await
+            .map_err(|e| CplpError::Network(format!("Connect to {} failed: {}", peer_addr, e)))?;
+
+        let audio_ch = client
+            .open_channel("audio")
+            .await
+            .map_err(|e| CplpError::Network(format!("Open audio channel failed: {}", e)))?;
+        let control_ch = client
+            .open_channel("control")
+            .await
+            .map_err(|e| CplpError::Network(format!("Open control channel failed: {}", e)))?;
+
+        self.peers.insert(
+            peer_id.clone(),
+            PeerConnection {
+                addr: peer_addr,
+                status: PeerStatus::Connected,
+                channels: Some(PeerChannels {
+                    audio: audio_ch,
+                    control: control_ch,
+                }),
+            },
+        );
+        self.mixer_state
+            .add_track(peer_id, TrackState::new("Peer"));
 
         if self.state == P2pState::ServerStarted {
-            self.transition(P2pState::Connecting);
-            // HalfConnected: Client → Server は確立、Server ← Client を待つ
             self.transition(P2pState::HalfConnected);
         }
-        // SessionActive の場合は状態遷移しない（レイトジョイン）
 
         Ok(())
     }
@@ -297,26 +398,13 @@ impl P2pManager {
         tracing::info!("Disconnecting...");
         self.transition(P2pState::Disconnecting);
 
-        // TODO: Unison API で切断処理
-        // session チャネル: PeerStatus("disconnecting") を送信
-        // 各チャネルを close
-        // client.disconnect()
-        // server_handle.shutdown()
-
-        // 全ピアに切断イベントを発火
-        let tx = self.event_tx.clone();
-        for peer_id in self.peers.keys() {
-            let pid = peer_id.clone();
-            let tx = tx.clone();
-            tokio::spawn(async move {
-                let _ = tx
-                    .send(P2pEvent::PeerDisconnected { peer_id: pid })
-                    .await;
-            });
-        }
-
         self.peers.clear();
         self.mixer_state = MixerState::new();
+
+        if let Some(handle) = self.server_handle.take() {
+            let _ = handle.shutdown().await;
+        }
+
         self.transition(P2pState::Idle);
         Ok(())
     }
