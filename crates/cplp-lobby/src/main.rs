@@ -1,4 +1,4 @@
-use cplp_lobby::{AppState, create_router, db};
+use cplp_lobby::{AppState, auth, create_router, db};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -11,7 +11,24 @@ async fn main() -> anyhow::Result<()> {
 
     // SurrealDB 接続
     let db = db::init_db().await?;
-    let state = AppState { db };
+
+    // OAuth 設定
+    let base_url =
+        std::env::var("BASE_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let oauth = auth::init_oauth_config(&base_url);
+
+    // JWT シークレット
+    let jwt_secret = std::env::var("JWT_SECRET")
+        .unwrap_or_else(|_| {
+            tracing::warn!("JWT_SECRET not set, using development fallback");
+            "dev-secret-do-not-use-in-production".to_string()
+        });
+
+    let state = AppState {
+        db,
+        oauth,
+        jwt_secret,
+    };
 
     let app = create_router(state);
 
