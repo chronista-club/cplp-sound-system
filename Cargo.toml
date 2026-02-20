@@ -41,6 +41,9 @@ clack-extensions = { git = "https://github.com/prokopyl/clack", features = ["cla
 winit = "0.30"
 clack-finder = { git = "https://github.com/prokopyl/clack" }
 
+# P2P 通信
+unison = { path = "../unison/crates/unison-protocol" }
+
 # Lock-free データ構造
 ringbuf = "0.4"
 
