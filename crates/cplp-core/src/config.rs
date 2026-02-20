@@ -27,18 +27,30 @@ pub struct NetworkConfig {
     pub jitter_buffer_depth: u32,
 }
 
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            sample_rate: 48_000,
+            buffer_size: 128,
+            channels: 2,
+        }
+    }
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            listen_port: 5000,
+            jitter_buffer_depth: 2,
+        }
+    }
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
-            audio: AudioConfig {
-                sample_rate: 48_000,
-                buffer_size: 128,
-                channels: 2,
-            },
-            network: NetworkConfig {
-                listen_port: 5000,
-                jitter_buffer_depth: 2,
-            },
+            audio: AudioConfig::default(),
+            network: NetworkConfig::default(),
         }
     }
 }

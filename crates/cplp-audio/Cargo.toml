@@ -7,6 +7,13 @@ description = "オーディオエンジン（CLAP プラグインホスト + cpa
 
 [dependencies]
 cplp-core.workspace = true
+cpal.workspace = true
+clack-host.workspace = true
+clack-extensions.workspace = true
+clack-finder.workspace = true
+ringbuf.workspace = true
+midir.workspace = true
+winit.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
