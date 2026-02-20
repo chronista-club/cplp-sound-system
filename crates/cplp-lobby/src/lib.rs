@@ -2,6 +2,8 @@ pub mod auth;
 pub mod db;
 pub mod error;
 pub mod jwt;
+pub mod routes;
+pub mod ws;
 
 use axum::{Json, Router, routing::get};
 use serde::Serialize;
@@ -38,6 +40,11 @@ pub fn create_router(state: AppState) -> Router {
             get(auth::oauth_callback),
         )
         .route("/auth/me", get(auth::get_me))
+        // グループ & セッション ルート
+        .merge(routes::groups::router())
+        .merge(routes::sessions::router())
+        // WebSocket
+        .merge(ws::router())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

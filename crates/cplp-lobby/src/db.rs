@@ -4,9 +4,18 @@
 
 use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
+pub use surrealdb::RecordId;
 
 /// SurrealDB クライアント型エイリアス
 pub type Db = Surreal<Any>;
+
+/// 文字列 "table:id" を RecordId に変換する
+pub fn to_record_id(s: &str) -> RecordId {
+    let (table, id) = s
+        .split_once(':')
+        .expect("record ID must contain ':'");
+    RecordId::from((table, id))
+}
 
 /// SurrealDB に接続し、スキーマを初期化する
 ///
