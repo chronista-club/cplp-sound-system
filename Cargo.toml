@@ -1,6 +1,37 @@
-[package]
-name = "cplp-sound-system"
+[workspace]
+members = [
+    "crates/cplp-core",
+    "crates/cplp-audio",
+    "crates/cplp-network",
+    "crates/cplp-session",
+    "crates/cplp-app",
+]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85.0"
+license = "MIT"
 
-[dependencies]
+[workspace.dependencies]
+# 内部クレート
+cplp-core = { path = "crates/cplp-core" }
+cplp-audio = { path = "crates/cplp-audio" }
+cplp-network = { path = "crates/cplp-network" }
+cplp-session = { path = "crates/cplp-session" }
+
+# 非同期ランタイム
+tokio = { version = "1", features = ["full"] }
+
+# シリアライゼーション
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# エラーハンドリング
+anyhow = "1"
+thiserror = "2"
+
+# ロギング
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

@@ -1,0 +1,51 @@
+// cplp-sound-system プロトコルスキーマ
+// Unison Protocol KDL 形式
+
+protocol "cplp-session" version="1.0.0" {
+    namespace "club.chronista.cplp"
+    description "CLAP Plugin Live Performance - P2P Session"
+
+    // オーディオチャネル: 生 PCM ストリーミング（最低レイテンシ）
+    channel "audio" direction="bidirectional" lifetime="persistent" {
+        // オーディオデータは生バイト列として送信（JSON オーバーヘッド回避）
+        // フォーマット: f32 samples × channels (interleaved stereo)
+    }
+
+    // コントロールチャネル: セッション制御
+    channel "control" direction="bidirectional" lifetime="persistent" {
+        request "SetBufferSize" {
+            field "size" type="u32"
+            returns "Ack" {
+                field "accepted" type="bool"
+            }
+        }
+        request "SetSampleRate" {
+            field "rate" type="u32"
+            returns "Ack" {
+                field "accepted" type="bool"
+            }
+        }
+        event "LatencyReport" {
+            field "rtt_us" type="u64"
+            field "jitter_us" type="u64"
+        }
+    }
+
+    // セッションチャネル: メタデータ交換
+    channel "session" direction="bidirectional" lifetime="persistent" {
+        request "PluginInfo" {
+            field "name" type="string"
+            field "vendor" type="string"
+            returns "Ack" {
+                field "received" type="bool"
+            }
+        }
+        event "PeerStatus" {
+            field "status" type="string"
+        }
+        event "PluginChanged" {
+            field "name" type="string"
+            field "vendor" type="string"
+        }
+    }
+}

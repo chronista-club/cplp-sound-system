@@ -1,0 +1,15 @@
+[package]
+name = "cplp-network"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "P2P ネットワーク層（Unison Protocol 経由）"
+
+[dependencies]
+cplp-core.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true

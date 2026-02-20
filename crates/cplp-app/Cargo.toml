@@ -1,0 +1,21 @@
+[package]
+name = "cplp-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "cplp-sound-system CLI アプリケーション"
+
+[[bin]]
+name = "cplp-sound-system"
+path = "src/main.rs"
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+cplp-network.workspace = true
+cplp-session.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap = { version = "4", features = ["derive"] }

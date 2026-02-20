@@ -1,0 +1,11 @@
+[package]
+name = "cplp-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "cplp-sound-system 共通型定義・設定"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

@@ -1,0 +1,15 @@
+[package]
+name = "cplp-session"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "セッション管理（ライフサイクル・シグナリング）"
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+cplp-network.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
