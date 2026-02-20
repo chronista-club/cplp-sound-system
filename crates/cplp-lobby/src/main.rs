@@ -1,4 +1,4 @@
-use cplp_lobby::create_router;
+use cplp_lobby::{AppState, create_router, db};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -9,7 +9,11 @@ async fn main() -> anyhow::Result<()> {
         .with_env_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
         .init();
 
-    let app = create_router();
+    // SurrealDB 接続
+    let db = db::init_db().await?;
+    let state = AppState { db };
+
+    let app = create_router(state);
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
     tracing::info!("cplp-lobby listening on {}", listener.local_addr()?);

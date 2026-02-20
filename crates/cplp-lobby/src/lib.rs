@@ -1,11 +1,15 @@
+pub mod db;
+
 use axum::{Json, Router, routing::get};
 use serde::Serialize;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
-/// アプリケーション共有状態（今後 DB 接続等を追加）
-#[derive(Clone, Debug)]
-pub struct AppState {}
+/// アプリケーション共有状態
+#[derive(Clone)]
+pub struct AppState {
+    pub db: db::Db,
+}
 
 /// ヘルスチェックのレスポンス
 #[derive(Debug, Serialize)]
@@ -19,11 +23,12 @@ async fn health_check() -> Json<HealthResponse> {
 }
 
 /// Axum ルーターを生成する
-pub fn create_router() -> Router {
+pub fn create_router(state: AppState) -> Router {
     Router::new()
         .route("/health", get(health_check))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
+        .with_state(state)
 }
 
 #[cfg(test)]
@@ -33,7 +38,9 @@ mod tests {
 
     #[tokio::test]
     async fn health_check_returns_ok() {
-        let server = TestServer::new(create_router()).unwrap();
+        let db = db::init_test_db().await.unwrap();
+        let state = AppState { db };
+        let server = TestServer::new(create_router(state)).unwrap();
         let response = server.get("/health").await;
 
         response.assert_status_ok();
