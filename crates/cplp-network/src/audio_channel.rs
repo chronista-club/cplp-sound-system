@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use cplp_core::{AudioPacket, CplpError, PeerId};
 use tokio::sync::mpsc;
+use unison::UnisonChannel;
 
 /// AudioStreamer: ネットワーク経由のオーディオ送受信
 ///
@@ -109,36 +110,54 @@ impl AudioStreamer {
         self.peer_recv_rxs.remove(peer_id)
     }
 
-    /// ネットワーク送信ループを起動
+    /// ネットワーク送信ループ: 全ピアの audio チャネルに PCM データを送信
     ///
-    /// send_rx からパケットを読み、Unison の raw bytes チャネルで送信する。
-    /// Unison API 確定後に channel パラメータを追加。
+    /// send_rx からパケットを読み、全ピアの UnisonChannel に send_raw で送る。
     pub async fn run_send_loop(
         mut send_rx: mpsc::Receiver<AudioPacket>,
-        // TODO: raw_channel: UnisonRawChannel,
+        channels: Vec<UnisonChannel>,
     ) -> Result<(), CplpError> {
         while let Some(packet) = send_rx.recv().await {
             let bytes = packet.to_bytes();
-            // TODO: raw_channel.send_raw(&bytes).await?;
-            tracing::trace!("Sent audio packet seq={} ({} bytes)", packet.seq, bytes.len());
+            for ch in &channels {
+                if let Err(e) = ch.send_raw(&bytes).await {
+                    tracing::warn!("Audio send failed: {}", e);
+                }
+            }
+            tracing::trace!("Sent audio packet seq={} to {} peers", packet.seq, channels.len());
         }
         Ok(())
     }
 
-    /// ネットワーク受信ループを起動
+    /// ネットワーク受信ループ: 1ピアからの audio データを受信
     ///
-    /// Unison の raw bytes チャネルから受信し、recv_tx に流す。
+    /// 各ピアにつき1つの受信ループが起動される。
     pub async fn run_recv_loop(
+        peer_id: PeerId,
         recv_tx: mpsc::Sender<AudioPacket>,
-        // TODO: raw_channel: UnisonRawChannel,
+        channel: UnisonChannel,
     ) -> Result<(), CplpError> {
-        // TODO: Unison raw bytes チャネルから受信ループ
-        // loop {
-        //     let bytes = raw_channel.recv_raw().await?;
-        //     let packet = AudioPacket::from_bytes(&bytes)?;
-        //     recv_tx.send(packet).await.map_err(|_| ...)?;
-        // }
-        let _ = recv_tx;
+        loop {
+            match channel.recv_raw().await {
+                Ok(bytes) => {
+                    match AudioPacket::from_bytes(&bytes) {
+                        Ok(packet) => {
+                            if recv_tx.send(packet).await.is_err() {
+                                tracing::debug!("Recv queue closed for {}", peer_id);
+                                break;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Invalid audio packet from {}: {}", peer_id, e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::info!("Audio channel closed for {}: {}", peer_id, e);
+                    break;
+                }
+            }
+        }
         Ok(())
     }
 }
