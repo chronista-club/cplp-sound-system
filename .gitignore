@@ -17,3 +17,6 @@
 
 # Claude Code
 .claude/
+
+# Worktrees
+.worktrees/
