@@ -41,7 +41,7 @@ pub enum OAuthProvider {
 
 impl OAuthProvider {
     /// 文字列からプロバイダーを解決する
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_provider(s: &str) -> Option<Self> {
         match s {
             "github" => Some(Self::Github),
             "google" => Some(Self::Google),
@@ -242,7 +242,7 @@ pub async fn oauth_start(
     State(state): State<crate::AppState>,
     Path(provider): Path<String>,
 ) -> Result<Redirect, AppError> {
-    let provider_enum = OAuthProvider::from_str(&provider)
+    let provider_enum = OAuthProvider::parse_provider(&provider)
         .ok_or_else(|| anyhow::anyhow!("unknown provider: {}", provider))?;
 
     let client = state
@@ -278,7 +278,7 @@ pub async fn oauth_callback(
     Path(provider): Path<String>,
     Query(query): Query<CallbackQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let provider_enum = OAuthProvider::from_str(&provider)
+    let provider_enum = OAuthProvider::parse_provider(&provider)
         .ok_or_else(|| anyhow::anyhow!("unknown provider: {}", provider))?;
 
     let _client = state
@@ -411,18 +411,18 @@ mod tests {
     #[test]
     fn test_oauth_provider_from_str() {
         assert_eq!(
-            OAuthProvider::from_str("github"),
+            OAuthProvider::parse_provider("github"),
             Some(OAuthProvider::Github)
         );
         assert_eq!(
-            OAuthProvider::from_str("google"),
+            OAuthProvider::parse_provider("google"),
             Some(OAuthProvider::Google)
         );
         assert_eq!(
-            OAuthProvider::from_str("discord"),
+            OAuthProvider::parse_provider("discord"),
             Some(OAuthProvider::Discord)
         );
-        assert_eq!(OAuthProvider::from_str("unknown"), None);
+        assert_eq!(OAuthProvider::parse_provider("unknown"), None);
     }
 
     #[test]
@@ -434,15 +434,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_user_extraction_with_valid_token() {
-        use axum::routing::get;
         use axum::Router;
+        use axum::routing::get;
 
         let jwt_secret = "test-secret-for-auth-user";
         let user_id = "users:test123";
 
         // テスト用トークン発行
-        let token =
-            jwt::create_token(user_id, jwt_secret).expect("token creation should succeed");
+        let token = jwt::create_token(user_id, jwt_secret).expect("token creation should succeed");
 
         // テスト用ルーターを構築
         let db = crate::db::init_test_db().await.unwrap();
@@ -462,9 +461,7 @@ mod tests {
             })
         }
 
-        let app = Router::new()
-            .route("/test", get(handler))
-            .with_state(state);
+        let app = Router::new().route("/test", get(handler)).with_state(state);
 
         let server = axum_test::TestServer::new(app).unwrap();
         let res = server
@@ -482,8 +479,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_user_extraction_without_token() {
-        use axum::routing::get;
         use axum::Router;
+        use axum::routing::get;
 
         let db = crate::db::init_test_db().await.unwrap();
         let state = crate::AppState {
@@ -502,9 +499,7 @@ mod tests {
             })
         }
 
-        let app = Router::new()
-            .route("/test", get(handler))
-            .with_state(state);
+        let app = Router::new().route("/test", get(handler)).with_state(state);
 
         let server = axum_test::TestServer::new(app).unwrap();
         let res = server.get("/test").await;
@@ -514,8 +509,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_auth_user_extraction_with_invalid_token() {
-        use axum::routing::get;
         use axum::Router;
+        use axum::routing::get;
 
         let db = crate::db::init_test_db().await.unwrap();
         let state = crate::AppState {
@@ -534,9 +529,7 @@ mod tests {
             })
         }
 
-        let app = Router::new()
-            .route("/test", get(handler))
-            .with_state(state);
+        let app = Router::new().route("/test", get(handler)).with_state(state);
 
         let server = axum_test::TestServer::new(app).unwrap();
         let res = server

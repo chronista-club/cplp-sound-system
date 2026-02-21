@@ -5,15 +5,14 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use clack_extensions::gui::{
-    GuiApiType, GuiConfiguration, GuiSize, HostGui, HostGuiImpl, PluginGui,
-    Window as ClapWindow,
+    GuiApiType, GuiConfiguration, GuiSize, HostGui, HostGuiImpl, PluginGui, Window as ClapWindow,
 };
-use clack_host::events::event_types::*;
 use clack_host::events::Match;
+use clack_host::events::event_types::*;
 use clack_host::prelude::*;
 use clack_host::process::StartedPluginAudioProcessor;
-use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::HeapRb;
+use ringbuf::traits::{Consumer, Producer, Split};
 use tracing::{error, info, warn};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
@@ -55,9 +54,7 @@ pub fn scan_plugins() -> Vec<PluginInfo> {
 fn scan_bundle(path: &Path) -> Result<Vec<PluginInfo>> {
     let bundle = unsafe { PluginBundle::load(path)? };
 
-    let factory = bundle
-        .get_plugin_factory()
-        .context("No plugin factory")?;
+    let factory = bundle.get_plugin_factory().context("No plugin factory")?;
 
     let mut plugins = Vec::new();
     for descriptor in factory.plugin_descriptors() {
@@ -321,12 +318,7 @@ impl PluginAudioProcessor {
         }
     }
 
-    fn do_process(
-        &mut self,
-        total_samples: usize,
-        frame_count: usize,
-        output: &mut [f32],
-    ) {
+    fn do_process(&mut self, total_samples: usize, frame_count: usize, output: &mut [f32]) {
         let channels = self.channels;
 
         let ins = self.input_ports.with_input_buffers([AudioPortBuffer {
@@ -423,8 +415,8 @@ impl PluginHandle {
     /// winit のウィンドウにプラグインGUIを埋め込み、ウィンドウが閉じられるまでブロックする。
     /// オーディオ処理は cpal スレッドで並行動作する。
     pub fn run_gui(&mut self) -> Result<()> {
-        let event_loop = EventLoop::new()
-            .map_err(|e| anyhow::anyhow!("EventLoop 作成に失敗: {e}"))?;
+        let event_loop =
+            EventLoop::new().map_err(|e| anyhow::anyhow!("EventLoop 作成に失敗: {e}"))?;
 
         let mut app = PluginGuiApp {
             plugin_handle: self,
@@ -493,12 +485,7 @@ impl ApplicationHandler for PluginGuiApp<'_> {
         ));
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
                 self.cleanup_gui();
@@ -540,18 +527,30 @@ impl PluginGuiApp<'_> {
         // サポート状況を確認
         let floating = gui.is_api_supported(
             &mut ph,
-            GuiConfiguration { api_type: api, is_floating: true },
+            GuiConfiguration {
+                api_type: api,
+                is_floating: true,
+            },
         );
         let embedded = gui.is_api_supported(
             &mut ph,
-            GuiConfiguration { api_type: api, is_floating: false },
+            GuiConfiguration {
+                api_type: api,
+                is_floating: false,
+            },
         );
         info!("GUI support: floating={floating}, embedded={embedded}");
 
         let config = if embedded {
-            GuiConfiguration { api_type: api, is_floating: false }
+            GuiConfiguration {
+                api_type: api,
+                is_floating: false,
+            }
         } else if floating {
-            GuiConfiguration { api_type: api, is_floating: true }
+            GuiConfiguration {
+                api_type: api,
+                is_floating: true,
+            }
         } else {
             anyhow::bail!("プラグインが GUI をサポートしていません");
         };
@@ -562,12 +561,16 @@ impl PluginGuiApp<'_> {
         self.gui_created = true;
 
         // 初期サイズを取得
-        let size = gui
-            .get_size(&mut ph)
-            .unwrap_or(GuiSize { width: 800, height: 600 });
+        let size = gui.get_size(&mut ph).unwrap_or(GuiSize {
+            width: 800,
+            height: 600,
+        });
         let resizable = gui.can_resize(&mut ph);
 
-        info!("GUI size: {}x{}, resizable={resizable}", size.width, size.height);
+        info!(
+            "GUI size: {}x{}, resizable={resizable}",
+            size.width, size.height
+        );
 
         // winit ウィンドウを作成
         let attrs = WinitWindow::default_attributes()
@@ -581,8 +584,8 @@ impl PluginGuiApp<'_> {
 
         if !config.is_floating {
             // Embedded モード: winit ウィンドウの NSView にプラグインGUIを埋め込む
-            let clap_window = ClapWindow::from_window(&window)
-                .context("CLAP ウィンドウハンドルの取得に失敗")?;
+            let clap_window =
+                ClapWindow::from_window(&window).context("CLAP ウィンドウハンドルの取得に失敗")?;
 
             unsafe {
                 gui.set_parent(&mut ph, clap_window)
@@ -597,7 +600,11 @@ impl PluginGuiApp<'_> {
         gui.show(&mut ph)
             .map_err(|e| anyhow::anyhow!("GUI 表示に失敗: {e:?}"))?;
 
-        let mode = if config.is_floating { "floating" } else { "embedded" };
+        let mode = if config.is_floating {
+            "floating"
+        } else {
+            "embedded"
+        };
         info!("Plugin GUI opened ({mode} mode)");
         println!("プラグイン GUI を表示中... (ウィンドウを閉じると停止)");
 
@@ -639,12 +646,10 @@ pub fn load_plugin(
     channels: usize,
 ) -> Result<(PluginAudioProcessor, NoteController, PluginHandle)> {
     let host = host_info();
-    let plugin_id = CString::new(plugin_info.id.as_str())
-        .context("Invalid plugin ID")?;
+    let plugin_id = CString::new(plugin_info.id.as_str()).context("Invalid plugin ID")?;
 
     let bundle = unsafe {
-        PluginBundle::load(&plugin_info.bundle_path)
-            .context("Failed to load plugin bundle")?
+        PluginBundle::load(&plugin_info.bundle_path).context("Failed to load plugin bundle")?
     };
 
     let (sender, receiver) = mpsc::channel();
@@ -676,7 +681,10 @@ pub fn load_plugin(
         .start_processing()
         .map_err(|e| anyhow::anyhow!("Failed to start processing: {:?}", e))?;
 
-    info!("Plugin activated: {}Hz, {}-{} frames", sample_rate, min_frames, max_frames);
+    info!(
+        "Plugin activated: {}Hz, {}-{} frames",
+        sample_rate, min_frames, max_frames
+    );
 
     let buf_size = max_frames as usize * channels;
     // 256 イベントキュー: 和音・高速連打に十分な容量
@@ -694,10 +702,7 @@ pub fn load_plugin(
         event_buf: EventBuffer::with_capacity(64),
     };
 
-    let handle = PluginHandle {
-        instance,
-        receiver,
-    };
+    let handle = PluginHandle { instance, receiver };
 
     Ok((processor, note_ctrl, handle))
 }

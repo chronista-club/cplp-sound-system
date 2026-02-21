@@ -2,9 +2,9 @@
 //!
 //! REQ-LOBBY-003: グループ管理
 
+use axum::Router;
 use axum::extract::{Json, Path, State};
 use axum::routing::{delete, get, post};
-use axum::Router;
 use serde::{Deserialize, Serialize};
 
 use crate::auth::AuthUser;
@@ -151,10 +151,7 @@ async fn get_group(
     let group: Option<serde_json::Value> = result.take(0)?;
     let group = group.ok_or_else(|| anyhow::anyhow!("グループが見つかりません"))?;
 
-    let name = group["name"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let name = group["name"].as_str().unwrap_or_default().to_string();
 
     // メンバー一覧を取得（member_of リレーション経由）
     let mut result = state
@@ -207,10 +204,7 @@ async fn invite_member(
         .await?;
 
     let roles: Vec<serde_json::Value> = result.take(0)?;
-    let role = roles
-        .first()
-        .and_then(|r| r["role"].as_str())
-        .unwrap_or("");
+    let role = roles.first().and_then(|r| r["role"].as_str()).unwrap_or("");
 
     if role != "owner" && role != "admin" {
         return Err(anyhow::anyhow!("owner または admin のみ招待できます").into());
@@ -249,10 +243,7 @@ async fn remove_member(
         .await?;
 
     let roles: Vec<serde_json::Value> = result.take(0)?;
-    let role = roles
-        .first()
-        .and_then(|r| r["role"].as_str())
-        .unwrap_or("");
+    let role = roles.first().and_then(|r| r["role"].as_str()).unwrap_or("");
 
     if role != "owner" {
         return Err(anyhow::anyhow!("owner のみメンバーを削除できます").into());
@@ -261,9 +252,7 @@ async fn remove_member(
     // member_of リレーションを削除
     state
         .db
-        .query(
-            "DELETE member_of WHERE in = type::thing($target) AND out = type::thing($group_id)",
-        )
+        .query("DELETE member_of WHERE in = type::thing($target) AND out = type::thing($group_id)")
         .bind(("target", target_user_id))
         .bind(("group_id", group_id))
         .await?
@@ -370,10 +359,7 @@ mod tests {
             .assert_status_ok();
 
         // 一覧取得
-        let res = server
-            .get("/groups")
-            .add_header(h_name, h_val)
-            .await;
+        let res = server.get("/groups").add_header(h_name, h_val).await;
 
         res.assert_status_ok();
         let groups: Vec<GroupResponse> = res.json();

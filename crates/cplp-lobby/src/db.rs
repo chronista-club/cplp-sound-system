@@ -2,18 +2,16 @@
 //!
 //! REQ-LOBBY-001: ロビーサーバーのデータ永続化
 
+pub use surrealdb::RecordId;
 use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
-pub use surrealdb::RecordId;
 
 /// SurrealDB クライアント型エイリアス
 pub type Db = Surreal<Any>;
 
 /// 文字列 "table:id" を RecordId に変換する
 pub fn to_record_id(s: &str) -> RecordId {
-    let (table, id) = s
-        .split_once(':')
-        .expect("record ID must contain ':'");
+    let (table, id) = s.split_once(':').expect("record ID must contain ':'");
     RecordId::from((table, id))
 }
 
@@ -72,7 +70,10 @@ mod tests {
 
         // スキーマが適用されていることを確認
         let result = db.query("INFO FOR DB").await;
-        assert!(result.is_ok(), "INFO FOR DB should succeed after schema init");
+        assert!(
+            result.is_ok(),
+            "INFO FOR DB should succeed after schema init"
+        );
     }
 
     #[tokio::test]

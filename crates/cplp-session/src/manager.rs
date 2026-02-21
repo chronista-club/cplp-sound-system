@@ -121,9 +121,10 @@ impl SessionManager {
     /// P2pEvent::PeerConnected を受信し、P2pState::Connected になるまでループ。
     /// Unison ServerHandle の ConnectionEvent がこのイベントを発火する。
     async fn wait_for_connection(&mut self) -> Result<(), CplpError> {
-        let mut event_rx = self.p2p.take_event_rx().ok_or_else(|| {
-            CplpError::Session("P2P イベントチャネルは既に取得済みです".into())
-        })?;
+        let mut event_rx = self
+            .p2p
+            .take_event_rx()
+            .ok_or_else(|| CplpError::Session("P2P イベントチャネルは既に取得済みです".into()))?;
 
         loop {
             match event_rx.recv().await {
@@ -181,19 +182,17 @@ impl SessionManager {
         tracing::info!("ロビー経由でピアを待機中 (session: {})", session.id);
 
         // WebSocket から PeerJoined を受信したら P2P 接続
-        let mut event_rx = lobby.take_event_rx().ok_or_else(|| {
-            CplpError::Session("ロビーイベントチャネルは既に取得済みです".into())
-        })?;
+        let mut event_rx = lobby
+            .take_event_rx()
+            .ok_or_else(|| CplpError::Session("ロビーイベントチャネルは既に取得済みです".into()))?;
 
         while let Some(event) = event_rx.recv().await {
             match event {
-                LobbyEvent::PeerJoined {
-                    user_id, addr, ..
-                } => {
+                LobbyEvent::PeerJoined { user_id, addr, .. } => {
                     tracing::info!("ピア参加検知: {} @ {}", user_id, addr);
-                    let peer_addr: SocketAddr = addr.parse().map_err(|e| {
-                        CplpError::Session(format!("アドレスパース失敗: {e}"))
-                    })?;
+                    let peer_addr: SocketAddr = addr
+                        .parse()
+                        .map_err(|e| CplpError::Session(format!("アドレスパース失敗: {e}")))?;
                     let peer_id = PeerId::new(&user_id);
                     self.p2p.connect_to_peer(peer_id, peer_addr).await?;
                     break;

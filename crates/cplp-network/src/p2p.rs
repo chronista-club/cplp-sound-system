@@ -11,11 +11,9 @@ use std::sync::Arc;
 
 use cplp_core::{CplpError, MixerState, PeerId, PeerStatus, TrackState};
 use tokio::sync::{mpsc, watch};
-use unison::network::context::ConnectionContext;
 use unison::network::UnisonStream;
-use unison::{
-    ConnectionEvent, ProtocolClient, ProtocolServer, ServerHandle, UnisonChannel,
-};
+use unison::network::context::ConnectionContext;
+use unison::{ConnectionEvent, ProtocolClient, ProtocolServer, ServerHandle, UnisonChannel};
 
 use crate::audio_channel::AudioStreamer;
 
@@ -70,14 +68,9 @@ pub enum P2pEvent {
     /// 状態が変化した
     StateChanged(P2pState),
     /// ピアが接続してきた
-    PeerConnected {
-        peer_id: PeerId,
-        addr: SocketAddr,
-    },
+    PeerConnected { peer_id: PeerId, addr: SocketAddr },
     /// ピアが切断した
-    PeerDisconnected {
-        peer_id: PeerId,
-    },
+    PeerDisconnected { peer_id: PeerId },
     /// エラーが発生した
     Error(CplpError),
 }
@@ -169,8 +162,7 @@ impl P2pManager {
                 channels: None,
             },
         );
-        self.mixer_state
-            .add_track(peer_id, TrackState::new(label));
+        self.mixer_state.add_track(peer_id, TrackState::new(label));
     }
 
     /// ピアを削除（接続情報 + ミキサートラック）
@@ -232,7 +224,7 @@ impl P2pManager {
         let mut conn_rx = server.subscribe_connection_events().await;
 
         // サーバー起動（spawn_listen は self を consume する）
-        let listen_str = format!("[::]:{}",self.listen_addr.port());
+        let listen_str = format!("[::]:{}", self.listen_addr.port());
         let handle = server
             .spawn_listen(&listen_str)
             .await
@@ -316,8 +308,7 @@ impl P2pManager {
                 }),
             },
         );
-        self.mixer_state
-            .add_track(peer_id, TrackState::new("Peer"));
+        self.mixer_state.add_track(peer_id, TrackState::new("Peer"));
 
         if self.state == P2pState::ServerStarted {
             self.transition(P2pState::HalfConnected);
@@ -341,10 +332,7 @@ impl P2pManager {
         let addr = peer_addr;
         tokio::spawn(async move {
             let _ = tx
-                .send(P2pEvent::PeerConnected {
-                    peer_id: pid,
-                    addr,
-                })
+                .send(P2pEvent::PeerConnected { peer_id: pid, addr })
                 .await;
         });
 
@@ -364,10 +352,7 @@ impl P2pManager {
                 tracing::info!("Late join: peer added to active session");
             }
             _ => {
-                tracing::warn!(
-                    "Unexpected peer connection in state: {:?}",
-                    self.state
-                );
+                tracing::warn!("Unexpected peer connection in state: {:?}", self.state);
             }
         }
 
@@ -435,10 +420,7 @@ mod tests {
     async fn test_invalid_state_transition() {
         let mut manager = P2pManager::new(5000, PeerId::new("test-peer"));
         let result = manager
-            .connect_to_peer(
-                PeerId::new("remote"),
-                "[::1]:5001".parse().unwrap(),
-            )
+            .connect_to_peer(PeerId::new("remote"), "[::1]:5001".parse().unwrap())
             .await;
         assert!(result.is_err());
     }

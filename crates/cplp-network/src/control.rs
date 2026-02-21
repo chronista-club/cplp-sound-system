@@ -16,24 +16,60 @@ use unison::UnisonChannel;
 #[serde(tag = "type")]
 pub enum ControlEvent {
     // ── ミキサー操作 ──
-    FaderChange { track: PeerId, volume: f32, ts: u64 },
-    PanChange { track: PeerId, pan: f32, ts: u64 },
-    MuteToggle { track: PeerId, mute: bool, ts: u64 },
-    SoloToggle { track: PeerId, solo: bool, ts: u64 },
-    MasterVol { volume: f32, ts: u64 },
+    FaderChange {
+        track: PeerId,
+        volume: f32,
+        ts: u64,
+    },
+    PanChange {
+        track: PeerId,
+        pan: f32,
+        ts: u64,
+    },
+    MuteToggle {
+        track: PeerId,
+        mute: bool,
+        ts: u64,
+    },
+    SoloToggle {
+        track: PeerId,
+        solo: bool,
+        ts: u64,
+    },
+    MasterVol {
+        volume: f32,
+        ts: u64,
+    },
 
     // ── セッション管理 ──
-    PeerJoined { peer: PeerId, addr: SocketAddr, label: String },
-    PeerLeft { peer: PeerId },
+    PeerJoined {
+        peer: PeerId,
+        addr: SocketAddr,
+        label: String,
+    },
+    PeerLeft {
+        peer: PeerId,
+    },
     /// 途中参加者へのミキサー全状態同期
-    MixerSync { state: MixerState },
+    MixerSync {
+        state: MixerState,
+    },
 
     // ── モニタリング ──
-    LatencyReport { rtt_us: u64, jitter_us: u64 },
+    LatencyReport {
+        rtt_us: u64,
+        jitter_us: u64,
+    },
 
     // ── プラグイン情報 ──
-    PluginInfo { name: String, vendor: String },
-    PluginChanged { name: String, vendor: String },
+    PluginInfo {
+        name: String,
+        vendor: String,
+    },
+    PluginChanged {
+        name: String,
+        vendor: String,
+    },
 }
 
 /// ControlHandler: control チャネルの処理
@@ -42,6 +78,12 @@ pub enum ControlEvent {
 /// ミキサーイベントの送受信と MixerState の更新を行う。
 pub struct ControlHandler {
     mixer_state: MixerState,
+}
+
+impl Default for ControlHandler {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ControlHandler {
@@ -78,7 +120,8 @@ impl ControlHandler {
                 self.mixer_state.apply_master(*volume, *ts);
             }
             ControlEvent::PeerJoined { peer, label, .. } => {
-                self.mixer_state.add_track(peer.clone(), TrackState::new(label));
+                self.mixer_state
+                    .add_track(peer.clone(), TrackState::new(label));
             }
             ControlEvent::PeerLeft { peer } => {
                 self.mixer_state.remove_track(peer);
@@ -186,9 +229,15 @@ mod tests {
     fn test_apply_event_fader() {
         let mut handler = ControlHandler::new();
         let peer = PeerId::new("p1");
-        handler.mixer_state_mut().add_track(peer.clone(), TrackState::new("Bass"));
+        handler
+            .mixer_state_mut()
+            .add_track(peer.clone(), TrackState::new("Bass"));
 
-        let event = ControlEvent::FaderChange { track: peer.clone(), volume: 0.7, ts: 100 };
+        let event = ControlEvent::FaderChange {
+            track: peer.clone(),
+            volume: 0.7,
+            ts: 100,
+        };
         handler.apply_event(&event);
         assert_eq!(handler.mixer_state().tracks[&peer].volume, 0.7);
     }
@@ -209,7 +258,9 @@ mod tests {
     fn test_apply_event_peer_left() {
         let mut handler = ControlHandler::new();
         let peer = PeerId::new("p1");
-        handler.mixer_state_mut().add_track(peer.clone(), TrackState::new("Synth"));
+        handler
+            .mixer_state_mut()
+            .add_track(peer.clone(), TrackState::new("Synth"));
 
         let event = ControlEvent::PeerLeft { peer: peer.clone() };
         handler.apply_event(&event);

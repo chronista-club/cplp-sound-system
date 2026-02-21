@@ -117,8 +117,7 @@ enum LobbyCmd {
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
@@ -173,39 +172,29 @@ fn main() -> anyhow::Result<()> {
             let plugins = plugin_host::scan_plugins();
 
             // シンセプラグイン
-            let plugin = plugins
-                .iter()
-                .find(|p| p.id == plugin_id)
-                .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "プラグイン '{}' が見つかりません。`scan` で ID を確認してください",
-                        plugin_id
-                    )
-                })?;
+            let plugin = plugins.iter().find(|p| p.id == plugin_id).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "プラグイン '{}' が見つかりません。`scan` で ID を確認してください",
+                    plugin_id
+                )
+            })?;
 
             tracing::info!("Loading synth: {} ({})", plugin.name, plugin.id);
 
             let config = AudioConfig::default();
-            let (mut synth_processor, mut note_ctrl, mut synth_handle) =
-                plugin_host::load_plugin(
-                    plugin,
-                    config.sample_rate as f64,
-                    config.buffer_size,
-                    config.buffer_size,
-                    config.channels as usize,
-                )?;
+            let (mut synth_processor, mut note_ctrl, mut synth_handle) = plugin_host::load_plugin(
+                plugin,
+                config.sample_rate as f64,
+                config.buffer_size,
+                config.buffer_size,
+                config.channels as usize,
+            )?;
 
             // エフェクトプラグイン（オプション）
             let fx_state = if let Some(ref fx_id) = fx {
-                let fx_plugin = plugins
-                    .iter()
-                    .find(|p| p.id == *fx_id)
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "エフェクトプラグイン '{}' が見つかりません",
-                            fx_id
-                        )
-                    })?;
+                let fx_plugin = plugins.iter().find(|p| p.id == *fx_id).ok_or_else(|| {
+                    anyhow::anyhow!("エフェクトプラグイン '{}' が見つかりません", fx_id)
+                })?;
 
                 tracing::info!("Loading effect: {} ({})", fx_plugin.name, fx_plugin.id);
 
@@ -405,7 +394,9 @@ async fn handle_lobby(cmd: LobbyCmd) -> anyhow::Result<()> {
             let user_id = extract_user_id_from_token(lobby.config())?;
             let mut session = SessionManager::with_user_id(app_config, &user_id);
 
-            println!("ロビー経由でセッション参加 (session: {session_id}, port: {port}, plugin: {plugin_id})");
+            println!(
+                "ロビー経由でセッション参加 (session: {session_id}, port: {port}, plugin: {plugin_id})"
+            );
 
             tokio::select! {
                 result = session.join_via_lobby(&mut lobby, &session_id) => {

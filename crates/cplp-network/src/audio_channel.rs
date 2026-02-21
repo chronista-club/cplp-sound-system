@@ -33,6 +33,12 @@ pub struct AudioStreamer {
     peer_recv_rxs: HashMap<PeerId, mpsc::Receiver<AudioPacket>>,
 }
 
+impl Default for AudioStreamer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioStreamer {
     pub fn new() -> Self {
         // 送信キュー: オーディオスレッド → ネットワークスレッド
@@ -96,13 +102,18 @@ impl AudioStreamer {
     }
 
     /// ピアの受信キューにパケットを追加
-    pub async fn push_peer_received(&self, peer_id: &PeerId, packet: AudioPacket) -> Result<(), CplpError> {
-        let tx = self.peer_recv_txs.get(peer_id).ok_or_else(|| {
-            CplpError::Network(format!("Unknown peer: {}", peer_id))
-        })?;
-        tx.send(packet).await.map_err(|_| {
-            CplpError::Network(format!("受信キューが閉じています: {}", peer_id))
-        })
+    pub async fn push_peer_received(
+        &self,
+        peer_id: &PeerId,
+        packet: AudioPacket,
+    ) -> Result<(), CplpError> {
+        let tx = self
+            .peer_recv_txs
+            .get(peer_id)
+            .ok_or_else(|| CplpError::Network(format!("Unknown peer: {}", peer_id)))?;
+        tx.send(packet)
+            .await
+            .map_err(|_| CplpError::Network(format!("受信キューが閉じています: {}", peer_id)))
     }
 
     /// ピアの受信キュー Receiver を取得（一度だけ）
@@ -124,7 +135,11 @@ impl AudioStreamer {
                     tracing::warn!("Audio send failed: {}", e);
                 }
             }
-            tracing::trace!("Sent audio packet seq={} to {} peers", packet.seq, channels.len());
+            tracing::trace!(
+                "Sent audio packet seq={} to {} peers",
+                packet.seq,
+                channels.len()
+            );
         }
         Ok(())
     }
@@ -139,19 +154,17 @@ impl AudioStreamer {
     ) -> Result<(), CplpError> {
         loop {
             match channel.recv_raw().await {
-                Ok(bytes) => {
-                    match AudioPacket::from_bytes(&bytes) {
-                        Ok(packet) => {
-                            if recv_tx.send(packet).await.is_err() {
-                                tracing::debug!("Recv queue closed for {}", peer_id);
-                                break;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Invalid audio packet from {}: {}", peer_id, e);
+                Ok(bytes) => match AudioPacket::from_bytes(&bytes) {
+                    Ok(packet) => {
+                        if recv_tx.send(packet).await.is_err() {
+                            tracing::debug!("Recv queue closed for {}", peer_id);
+                            break;
                         }
                     }
-                }
+                    Err(e) => {
+                        tracing::warn!("Invalid audio packet from {}: {}", peer_id, e);
+                    }
+                },
                 Err(e) => {
                     tracing::info!("Audio channel closed for {}: {}", peer_id, e);
                     break;
@@ -216,7 +229,7 @@ mod tests {
     #[tokio::test]
     async fn test_streamer_send_receive() {
         let mut streamer = AudioStreamer::new();
-        let handle = streamer.send_handle();
+        let _handle = streamer.send_handle();
         let mut recv_rx = streamer.take_recv_rx().unwrap();
 
         // 受信側にパケットを直接プッシュ
@@ -242,11 +255,25 @@ mod tests {
         streamer.add_peer_track(peer_a.clone());
         streamer.add_peer_track(peer_b.clone());
 
-        let packet_a = AudioPacket { seq: 0, timestamp: 0, pcm_data: vec![0.5, 0.5] };
-        let packet_b = AudioPacket { seq: 0, timestamp: 0, pcm_data: vec![0.3, 0.3] };
+        let packet_a = AudioPacket {
+            seq: 0,
+            timestamp: 0,
+            pcm_data: vec![0.5, 0.5],
+        };
+        let packet_b = AudioPacket {
+            seq: 0,
+            timestamp: 0,
+            pcm_data: vec![0.3, 0.3],
+        };
 
-        streamer.push_peer_received(&peer_a, packet_a).await.unwrap();
-        streamer.push_peer_received(&peer_b, packet_b).await.unwrap();
+        streamer
+            .push_peer_received(&peer_a, packet_a)
+            .await
+            .unwrap();
+        streamer
+            .push_peer_received(&peer_b, packet_b)
+            .await
+            .unwrap();
 
         let mut rx_a = streamer.take_peer_recv_rx(&peer_a).unwrap();
         let mut rx_b = streamer.take_peer_recv_rx(&peer_b).unwrap();

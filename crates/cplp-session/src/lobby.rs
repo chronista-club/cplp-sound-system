@@ -172,10 +172,9 @@ impl LobbyClient {
 
     /// グループの WebSocket イベントを購読
     pub fn subscribe_group(&self, group_id: &str) -> anyhow::Result<()> {
-        let cmd_tx = self
-            .cmd_tx
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("WebSocket 未接続です。connect_ws() を先に呼んでください"))?;
+        let cmd_tx = self.cmd_tx.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("WebSocket 未接続です。connect_ws() を先に呼んでください")
+        })?;
         cmd_tx.send(LobbyCommand::SubscribeGroup {
             group_id: group_id.to_string(),
         })?;

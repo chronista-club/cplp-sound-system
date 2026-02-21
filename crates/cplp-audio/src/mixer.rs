@@ -18,16 +18,16 @@ impl Default for AudioMixer {
 impl AudioMixer {
     /// サンプルレベルで加算ミキシング
     pub fn mix(&self, local: &[f32], remote: &[f32], output: &mut [f32]) {
-        for i in 0..output.len() {
+        for (i, out) in output.iter_mut().enumerate() {
             let l = local.get(i).copied().unwrap_or(0.0);
             let r = remote.get(i).copied().unwrap_or(0.0);
-            output[i] = (l * self.local_gain + r * self.remote_gain).clamp(-1.0, 1.0);
+            *out = (l * self.local_gain + r * self.remote_gain).clamp(-1.0, 1.0);
         }
     }
 }
 
-use std::collections::HashMap;
 use cplp_core::{MixerState, PeerId};
+use std::collections::HashMap;
 
 /// N トラック対応ミキシング（MixerState 適用）
 ///
@@ -81,12 +81,7 @@ fn should_output(track: &cplp_core::TrackState, has_solo: bool) -> bool {
 }
 
 /// トラックを出力バッファに加算（volume + pan 適用）
-fn add_track(
-    src: &[f32],
-    track: &cplp_core::TrackState,
-    channels: usize,
-    output: &mut [f32],
-) {
+fn add_track(src: &[f32], track: &cplp_core::TrackState, channels: usize, output: &mut [f32]) {
     // Equal-power panning: θ = (pan + 1) / 2 * π/2
     let theta = (track.pan + 1.0) / 2.0 * std::f32::consts::FRAC_PI_2;
     let gain_l = theta.cos() * track.volume;
@@ -123,7 +118,10 @@ mod tests {
 
     #[test]
     fn mix_clamps() {
-        let mixer = AudioMixer { local_gain: 1.0, remote_gain: 1.0 };
+        let mixer = AudioMixer {
+            local_gain: 1.0,
+            remote_gain: 1.0,
+        };
         let local = [0.8];
         let remote = [0.8];
         let mut output = [0.0; 1];

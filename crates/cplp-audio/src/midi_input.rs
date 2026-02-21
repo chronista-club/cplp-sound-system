@@ -15,15 +15,12 @@ pub struct MidiInputManager {
 
 /// 利用可能な MIDI 入力ポートを一覧
 pub fn list_midi_ports() -> Result<Vec<String>> {
-    let midi_in = MidiInput::new("cplp-scan")
-        .context("MIDI 入力の初期化に失敗")?;
+    let midi_in = MidiInput::new("cplp-scan").context("MIDI 入力の初期化に失敗")?;
 
     let ports = midi_in.ports();
     let mut names = Vec::new();
     for port in &ports {
-        let name = midi_in
-            .port_name(port)
-            .unwrap_or_else(|_| "unknown".into());
+        let name = midi_in.port_name(port).unwrap_or_else(|_| "unknown".into());
         names.push(name);
     }
     Ok(names)
@@ -32,8 +29,7 @@ pub fn list_midi_ports() -> Result<Vec<String>> {
 impl MidiInputManager {
     /// 指定ポート（インデックス）に接続し、MIDI メッセージを NoteController に転送
     pub fn connect(port_index: usize, note_ctrl: NoteController) -> Result<Self> {
-        let midi_in = MidiInput::new("cplp-midi")
-            .context("MIDI 入力の初期化に失敗")?;
+        let midi_in = MidiInput::new("cplp-midi").context("MIDI 入力の初期化に失敗")?;
 
         let ports = midi_in.ports();
         if port_index >= ports.len() {
@@ -45,9 +41,7 @@ impl MidiInputManager {
         }
 
         let port = &ports[port_index];
-        let port_name = midi_in
-            .port_name(port)
-            .unwrap_or_else(|_| "unknown".into());
+        let port_name = midi_in.port_name(port).unwrap_or_else(|_| "unknown".into());
 
         info!("MIDI 入力に接続: {}", port_name);
 
@@ -75,16 +69,13 @@ impl MidiInputManager {
 
     /// ポート名で検索して接続
     pub fn connect_by_name(name: &str, note_ctrl: NoteController) -> Result<Self> {
-        let midi_in = MidiInput::new("cplp-midi")
-            .context("MIDI 入力の初期化に失敗")?;
+        let midi_in = MidiInput::new("cplp-midi").context("MIDI 入力の初期化に失敗")?;
 
         let ports = midi_in.ports();
         let mut found_index = None;
 
         for (i, port) in ports.iter().enumerate() {
-            let port_name = midi_in
-                .port_name(port)
-                .unwrap_or_else(|_| "unknown".into());
+            let port_name = midi_in.port_name(port).unwrap_or_else(|_| "unknown".into());
             if port_name.contains(name) {
                 found_index = Some(i);
                 break;

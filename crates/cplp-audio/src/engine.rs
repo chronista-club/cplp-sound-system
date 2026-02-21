@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Stream, StreamConfig};
-use ringbuf::traits::{Consumer, Producer, Split};
 use ringbuf::HeapRb;
+use ringbuf::traits::{Consumer, Producer, Split};
 use tracing::{error, info};
 
 use cplp_core::config::AudioConfig;
@@ -57,7 +57,8 @@ impl AudioEngine {
             buffer_size: cpal::BufferSize::Fixed(self.config.buffer_size),
         };
 
-        let buffer_capacity = (self.config.buffer_size as usize) * (self.config.channels as usize) * 8;
+        let buffer_capacity =
+            (self.config.buffer_size as usize) * (self.config.channels as usize) * 8;
 
         // リモートオーディオ受信用リングバッファ
         let remote_rb = HeapRb::<f32>::new(buffer_capacity);

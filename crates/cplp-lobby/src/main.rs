@@ -18,11 +18,10 @@ async fn main() -> anyhow::Result<()> {
     let oauth = auth::init_oauth_config(&base_url);
 
     // JWT シークレット
-    let jwt_secret = std::env::var("JWT_SECRET")
-        .unwrap_or_else(|_| {
-            tracing::warn!("JWT_SECRET not set, using development fallback");
-            "dev-secret-do-not-use-in-production".to_string()
-        });
+    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| {
+        tracing::warn!("JWT_SECRET not set, using development fallback");
+        "dev-secret-do-not-use-in-production".to_string()
+    });
 
     let state = AppState {
         db,

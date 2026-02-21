@@ -2,9 +2,9 @@
 //!
 //! REQ-LOBBY-004: P2P セッションのライフサイクル管理
 
+use axum::Router;
 use axum::extract::{Json, Path, State};
 use axum::routing::{get, post};
-use axum::Router;
 use serde::{Deserialize, Serialize};
 use surrealdb::RecordId;
 
@@ -311,9 +311,7 @@ async fn fetch_group_id(db: &crate::db::Db, session_id: &str) -> anyhow::Result<
         .await?;
 
     let row: Option<GroupIdRow> = result.take(0)?;
-    Ok(row
-        .map(|r| r.group_id.to_string())
-        .unwrap_or_default())
+    Ok(row.map(|r| r.group_id.to_string()).unwrap_or_default())
 }
 
 /// セッションのピア一覧を取得する

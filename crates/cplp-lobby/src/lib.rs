@@ -35,10 +35,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/health", get(health_check))
         // OAuth ルート
         .route("/auth/{provider}", get(auth::oauth_start))
-        .route(
-            "/auth/{provider}/callback",
-            get(auth::oauth_callback),
-        )
+        .route("/auth/{provider}/callback", get(auth::oauth_callback))
         .route("/auth/me", get(auth::get_me))
         // グループ & セッション ルート
         .merge(routes::groups::router())

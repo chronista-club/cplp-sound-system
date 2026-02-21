@@ -102,8 +102,7 @@ mod tests {
     #[test]
     fn test_wrong_secret() {
         let user_id = "users:wrong";
-        let token =
-            create_token(user_id, TEST_SECRET).expect("token creation should succeed");
+        let token = create_token(user_id, TEST_SECRET).expect("token creation should succeed");
 
         let result = verify_token(&token, "wrong-secret");
         assert!(
