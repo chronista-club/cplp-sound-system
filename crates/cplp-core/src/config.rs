@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// アプリケーション全体の設定
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     pub audio: AudioConfig,
     pub network: NetworkConfig,
@@ -27,18 +27,21 @@ pub struct NetworkConfig {
     pub jitter_buffer_depth: u32,
 }
 
-impl Default for AppConfig {
+impl Default for AudioConfig {
     fn default() -> Self {
         Self {
-            audio: AudioConfig {
-                sample_rate: 48_000,
-                buffer_size: 128,
-                channels: 2,
-            },
-            network: NetworkConfig {
-                listen_port: 5000,
-                jitter_buffer_depth: 2,
-            },
+            sample_rate: 48_000,
+            buffer_size: 128,
+            channels: 2,
+        }
+    }
+}
+
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            listen_port: 5000,
+            jitter_buffer_depth: 2,
         }
     }
 }

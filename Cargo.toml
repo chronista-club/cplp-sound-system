@@ -5,6 +5,7 @@ members = [
     "crates/cplp-network",
     "crates/cplp-session",
     "crates/cplp-app",
+    "crates/cplp-lobby",
 ]
 resolver = "2"
 
@@ -32,6 +33,47 @@ serde_json = "1"
 anyhow = "1"
 thiserror = "2"
 
+# オーディオ
+cpal = "0.15"
+clack-host = { git = "https://github.com/prokopyl/clack", features = ["libloading"] }
+clack-extensions = { git = "https://github.com/prokopyl/clack", features = ["clack-host", "audio-ports", "note-ports", "gui", "raw-window-handle_06"] }
+
+# GUI ウィンドウ
+winit = "0.30"
+clack-finder = { git = "https://github.com/prokopyl/clack" }
+
+# P2P 通信
+unison = { git = "https://github.com/chronista-club/unison.git" }
+
+# Lock-free データ構造
+ringbuf = "0.4"
+
+# MIDI
+midir = "0.10"
+
 # ロギング
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# HTTP サーバー
+axum = { version = "0.8", features = ["ws"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# データベース
+surrealdb = { version = "2", features = ["kv-mem"] }
+
+# 認証
+oauth2 = "5"
+jsonwebtoken = "9"
+
+# HTTP クライアント
+reqwest = { version = "0.12", features = ["json"] }
+
+# WebSocket クライアント
+tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
+futures-util = "0.3"
+
+# ユーティリティ
+uuid = { version = "1", features = ["v4"] }
+url = "2"
