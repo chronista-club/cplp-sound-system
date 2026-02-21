@@ -9,43 +9,15 @@ use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
 use cplp_session::{LobbyClient, LobbyConfig, SessionManager};
 
 #[derive(Parser)]
-#[command(name = "cplp-sound-system")]
+#[command(name = "cplp")]
 #[command(about = "CLAP Plugin Live Performance - P2P リアルタイムジャムセッション")]
-enum Cli {
-    /// サーバーを起動して接続を待機
-    Listen {
-        /// リッスンポート
-        #[arg(short, long, default_value_t = 5000)]
-        port: u16,
-        /// シンセプラグイン ID（scan で確認）
-        plugin_id: String,
-        /// エフェクトプラグイン ID（シンセ出力にチェイン）
-        #[arg(long)]
-        fx: Option<String>,
-        /// MIDI 入力ポート番号（midi コマンドで確認）
-        #[arg(short, long)]
-        midi: Option<usize>,
-    },
-    /// 相手のピアに接続
-    Connect {
-        /// 接続先アドレス (例: [::1]:5000)
-        addr: String,
-        /// ローカルリッスンポート（デュアルロール用）
-        #[arg(short, long, default_value_t = 5001)]
-        port: u16,
-        /// シンセプラグイン ID（scan で確認）
-        plugin_id: String,
-        /// エフェクトプラグイン ID（シンセ出力にチェイン）
-        #[arg(long)]
-        fx: Option<String>,
-        /// MIDI 入力ポート番号（midi コマンドで確認）
-        #[arg(short, long)]
-        midi: Option<usize>,
-    },
-    /// インストール済み CLAP プラグインをスキャン
-    Scan,
-    /// MIDI 入力ポートを一覧
-    Midi,
+struct Cli {
+    #[command(subcommand)]
+    cmd: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
     /// CLAP プラグインをロードして演奏
     Play {
         /// シンセプラグイン ID（scan で確認）
@@ -63,14 +35,50 @@ enum Cli {
         #[arg(short, long, default_value_t = 0)]
         duration: u64,
     },
-    /// オーディオ出力テスト（サイン波）
-    Test {
-        /// 周波数 (Hz)
-        #[arg(short, long, default_value_t = 440.0)]
-        freq: f32,
-        /// 再生時間 (秒)
-        #[arg(short, long, default_value_t = 3)]
-        duration: u64,
+    /// セッション管理（P2P 直接接続・ロビー経由）
+    Session {
+        #[command(subcommand)]
+        cmd: SessionCmd,
+    },
+    /// デバイス情報（プラグイン・MIDI・オーディオ）
+    Device {
+        #[command(subcommand)]
+        cmd: DeviceCmd,
+    },
+}
+
+/// セッションサブコマンド
+#[derive(Subcommand)]
+enum SessionCmd {
+    /// P2P ホストとして接続を待機
+    Listen {
+        /// リッスンポート
+        #[arg(short, long, default_value_t = 5000)]
+        port: u16,
+        /// シンセプラグイン ID
+        plugin_id: String,
+        /// エフェクトプラグイン ID
+        #[arg(long)]
+        fx: Option<String>,
+        /// MIDI 入力ポート番号
+        #[arg(short, long)]
+        midi: Option<usize>,
+    },
+    /// P2P ピアに直接接続
+    Connect {
+        /// 接続先アドレス (例: [::1]:5000)
+        addr: String,
+        /// ローカルリッスンポート
+        #[arg(short, long, default_value_t = 5001)]
+        port: u16,
+        /// シンセプラグイン ID
+        plugin_id: String,
+        /// エフェクトプラグイン ID
+        #[arg(long)]
+        fx: Option<String>,
+        /// MIDI 入力ポート番号
+        #[arg(short, long)]
+        midi: Option<usize>,
     },
     /// ロビーサーバー経由でセッション管理
     Lobby {
@@ -133,137 +141,41 @@ enum LobbyCmd {
     },
 }
 
+/// デバイスサブコマンド
+#[derive(Subcommand)]
+enum DeviceCmd {
+    /// インストール済み CLAP プラグインをスキャン
+    Scan,
+    /// MIDI 入力ポートを一覧
+    Midi,
+    /// オーディオ出力テスト（サイン波）
+    Test {
+        /// 周波数 (Hz)
+        #[arg(short, long, default_value_t = 440.0)]
+        freq: f32,
+        /// 再生時間 (秒)
+        #[arg(short, long, default_value_t = 3)]
+        duration: u64,
+    },
+}
+
 fn main() -> anyhow::Result<()> {
+    let cli = Cli::parse();
+
+    let Some(cmd) = cli.cmd else {
+        // ステータス表示時はログを抑制
+        return show_status();
+    };
+
+    // サブコマンド実行時のみ tracing を初期化
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
-    let cli = Cli::parse();
-
-    match cli {
-        Cli::Listen {
-            port,
-            plugin_id,
-            fx,
-            midi,
-        } => {
-            let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
-
-            println!("ピアの接続を待機中 (port {port})...");
-            println!("(Ctrl+C で停止)");
-
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async {
-                let app_config = AppConfig {
-                    audio: AudioConfig::default(),
-                    network: NetworkConfig {
-                        listen_port: port,
-                        ..Default::default()
-                    },
-                };
-                let mut session = SessionManager::new(app_config);
-
-                tokio::select! {
-                    result = session.host() => {
-                        match result {
-                            Ok(_streamer) => {
-                                println!("セッション開始！");
-                                // TODO: AudioEngine ↔ AudioStreamer ブリッジ接続
-                                tokio::signal::ctrl_c().await.ok();
-                            }
-                            Err(e) => tracing::error!("セッションエラー: {}", e),
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        println!("\n停止中...");
-                    }
-                }
-
-                session.shutdown().await.ok();
-            });
-
-            engine.stop();
-        }
-        Cli::Connect {
-            addr,
-            port,
-            plugin_id,
-            fx,
-            midi,
-        } => {
-            let peer_addr: SocketAddr = addr.parse()?;
-            let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
-
-            println!("{} に接続中...", peer_addr);
-            println!("(Ctrl+C で停止)");
-
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(async {
-                let app_config = AppConfig {
-                    audio: AudioConfig::default(),
-                    network: NetworkConfig {
-                        listen_port: port,
-                        ..Default::default()
-                    },
-                };
-                let mut session = SessionManager::new(app_config);
-
-                tokio::select! {
-                    result = session.join(peer_addr) => {
-                        match result {
-                            Ok(_streamer) => {
-                                println!("セッション開始！");
-                                // TODO: AudioEngine ↔ AudioStreamer ブリッジ接続
-                                tokio::signal::ctrl_c().await.ok();
-                            }
-                            Err(e) => tracing::error!("セッションエラー: {}", e),
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        println!("\n停止中...");
-                    }
-                }
-
-                session.shutdown().await.ok();
-            });
-
-            engine.stop();
-        }
-        Cli::Scan => {
-            let plugins = plugin_host::scan_plugins();
-            if plugins.is_empty() {
-                println!("CLAP プラグインが見つかりません");
-                println!("インストール先: ~/Library/Audio/Plug-Ins/CLAP/");
-            } else {
-                println!("{} 個のプラグインが見つかりました:\n", plugins.len());
-                for p in &plugins {
-                    println!("  {} ({})", p.name, p.vendor);
-                    println!("    ID: {}", p.id);
-                    println!("    Version: {}", p.version);
-                    println!("    Path: {}", p.bundle_path.display());
-                    println!();
-                }
-            }
-        }
-        Cli::Midi => {
-            let ports = midi_input::list_midi_ports()?;
-            if ports.is_empty() {
-                println!("MIDI 入力ポートが見つかりません");
-                println!("MIDI キーボードを接続してください");
-            } else {
-                println!("{} 個の MIDI 入力ポート:\n", ports.len());
-                for (i, name) in ports.iter().enumerate() {
-                    println!("  [{i}] {name}");
-                }
-                println!();
-                println!("使い方: play <PLUGIN_ID> --midi <ポート番号>");
-            }
-        }
-        Cli::Play {
+    match cmd {
+        Command::Play {
             plugin_id,
             fx,
             midi,
@@ -356,37 +268,159 @@ fn main() -> anyhow::Result<()> {
 
             engine.stop();
         }
-        Cli::Test { freq, duration } => {
-            tracing::info!("Audio test: {freq}Hz for {duration}s");
+        Command::Session { cmd: session_cmd } => match session_cmd {
+            SessionCmd::Listen {
+                port,
+                plugin_id,
+                fx,
+                midi,
+            } => {
+                let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
 
-            let config = AudioConfig::default();
-            let sample_rate = config.sample_rate as f32;
-            let channels = config.channels as usize;
+                println!("ピアの接続を待機中 (port {port})...");
+                println!("(Ctrl+C で停止)");
 
-            let mut phase: f32 = 0.0;
-            let phase_inc = freq * 2.0 * PI / sample_rate;
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async {
+                    let app_config = AppConfig {
+                        audio: AudioConfig::default(),
+                        network: NetworkConfig {
+                            listen_port: port,
+                            ..Default::default()
+                        },
+                    };
+                    let mut session = SessionManager::new(app_config);
 
-            let mut engine = AudioEngine::new(config);
-            engine.start(move |buf: &mut [f32]| {
-                for frame in buf.chunks_mut(channels) {
-                    let sample = (phase).sin() * 0.3;
-                    for ch in frame.iter_mut() {
-                        *ch = sample;
+                    tokio::select! {
+                        result = session.host() => {
+                            match result {
+                                Ok(_streamer) => {
+                                    println!("セッション開始！");
+                                    tokio::signal::ctrl_c().await.ok();
+                                }
+                                Err(e) => tracing::error!("セッションエラー: {}", e),
+                            }
+                        }
+                        _ = tokio::signal::ctrl_c() => {
+                            println!("\n停止中...");
+                        }
                     }
-                    phase += phase_inc;
-                    if phase > 2.0 * PI {
-                        phase -= 2.0 * PI;
+
+                    session.shutdown().await.ok();
+                });
+
+                engine.stop();
+            }
+            SessionCmd::Connect {
+                addr,
+                port,
+                plugin_id,
+                fx,
+                midi,
+            } => {
+                let peer_addr: SocketAddr = addr.parse()?;
+                let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
+
+                println!("{} に接続中...", peer_addr);
+                println!("(Ctrl+C で停止)");
+
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(async {
+                    let app_config = AppConfig {
+                        audio: AudioConfig::default(),
+                        network: NetworkConfig {
+                            listen_port: port,
+                            ..Default::default()
+                        },
+                    };
+                    let mut session = SessionManager::new(app_config);
+
+                    tokio::select! {
+                        result = session.join(peer_addr) => {
+                            match result {
+                                Ok(_streamer) => {
+                                    println!("セッション開始！");
+                                    tokio::signal::ctrl_c().await.ok();
+                                }
+                                Err(e) => tracing::error!("セッションエラー: {}", e),
+                            }
+                        }
+                        _ = tokio::signal::ctrl_c() => {
+                            println!("\n停止中...");
+                        }
+                    }
+
+                    session.shutdown().await.ok();
+                });
+
+                engine.stop();
+            }
+            SessionCmd::Lobby { cmd: lobby_cmd } => {
+                let rt = tokio::runtime::Runtime::new()?;
+                rt.block_on(handle_lobby(lobby_cmd))?;
+            }
+        },
+        Command::Device { cmd: device_cmd } => match device_cmd {
+            DeviceCmd::Scan => {
+                let plugins = plugin_host::scan_plugins();
+                if plugins.is_empty() {
+                    println!("CLAP プラグインが見つかりません");
+                    println!("インストール先: ~/Library/Audio/Plug-Ins/CLAP/");
+                } else {
+                    println!("{} 個のプラグインが見つかりました:\n", plugins.len());
+                    for p in &plugins {
+                        println!("  {} ({})", p.name, p.vendor);
+                        println!("    ID: {}", p.id);
+                        println!("    Version: {}", p.version);
+                        println!("    Path: {}", p.bundle_path.display());
+                        println!();
                     }
                 }
-            })?;
+            }
+            DeviceCmd::Midi => {
+                let ports = midi_input::list_midi_ports()?;
+                if ports.is_empty() {
+                    println!("MIDI 入力ポートが見つかりません");
+                    println!("MIDI キーボードを接続してください");
+                } else {
+                    println!("{} 個の MIDI 入力ポート:\n", ports.len());
+                    for (i, name) in ports.iter().enumerate() {
+                        println!("  [{i}] {name}");
+                    }
+                    println!();
+                    println!("使い方: cplp play <PLUGIN_ID> --midi <ポート番号>");
+                }
+            }
+            DeviceCmd::Test { freq, duration } => {
+                tracing::info!("Audio test: {freq}Hz for {duration}s");
 
-            std::thread::sleep(std::time::Duration::from_secs(duration));
-            engine.stop();
-        }
-        Cli::Lobby { cmd } => {
-            let rt = tokio::runtime::Runtime::new()?;
-            rt.block_on(handle_lobby(cmd))?;
-        }
+                let config = AudioConfig::default();
+                let sample_rate = config.sample_rate as f32;
+                let channels = config.channels as usize;
+
+                let mut phase: f32 = 0.0;
+                let phase_inc = freq * 2.0 * PI / sample_rate;
+
+                let mut engine = AudioEngine::new(config);
+                engine.start(move |buf: &mut [f32]| {
+                    for frame in buf.chunks_mut(channels) {
+                        let sample = (phase).sin() * 0.3;
+                        for ch in frame.iter_mut() {
+                            *ch = sample;
+                        }
+                        phase += phase_inc;
+                        if phase > 2.0 * PI {
+                            phase -= 2.0 * PI;
+                        }
+                    }
+                })?;
+
+                std::thread::sleep(std::time::Duration::from_secs(duration));
+                engine.stop();
+            }
+        },
     }
 
     Ok(())
@@ -654,6 +688,66 @@ fn setup_session_audio(
     };
 
     Ok((engine, synth_handle, fx_handle, midi_conn))
+}
+
+// ─── ステータス表示 ──────────────────────────────────────
+
+/// 引数なしで起動した際にシステムステータスを表示
+fn show_status() -> anyhow::Result<()> {
+    let version = env!("CARGO_PKG_VERSION");
+    println!();
+    println!("  cplp v{version}");
+    println!("  CLAP Plugin Live Performance - P2P リアルタイムジャムセッション");
+    println!();
+
+    // Plugins
+    let plugins = plugin_host::scan_plugins();
+    if plugins.is_empty() {
+        println!("  Plugins:  (none)");
+    } else {
+        println!("  Plugins:  {} detected", plugins.len());
+        for p in &plugins {
+            println!("    - {} ({})", p.name, p.id);
+        }
+    }
+    println!();
+
+    // MIDI
+    match midi_input::list_midi_ports() {
+        Ok(ports) if !ports.is_empty() => {
+            println!("  MIDI:     {} ports", ports.len());
+            for (i, name) in ports.iter().enumerate() {
+                println!("    - [{i}] {name}");
+            }
+        }
+        _ => {
+            println!("  MIDI:     (none)");
+        }
+    }
+    println!();
+
+    // Audio
+    let config = AudioConfig::default();
+    println!(
+        "  Audio:    {}Hz, {}ch, buffer {}",
+        config.sample_rate, config.channels, config.buffer_size
+    );
+    println!();
+
+    // Quick start
+    println!("  Quick start:");
+    if let Some(p) = plugins.first() {
+        println!("    cplp play {}          演奏", p.id);
+        println!("    cplp play {} --midi 0  MIDI で演奏", p.id);
+    } else {
+        println!("    cplp play <PLUGIN_ID>              演奏");
+    }
+    println!("    cplp session lobby host --group <ID> ...  ロビー経由セッション");
+    println!();
+    println!("  Run `cplp --help` for all commands.");
+    println!();
+
+    Ok(())
 }
 
 fn wait_for_duration(duration: u64) {

@@ -6,7 +6,7 @@ rust-version.workspace = true
 description = "cplp-sound-system CLI アプリケーション"
 
 [[bin]]
-name = "cplp-sound-system"
+name = "cplp"
 path = "src/main.rs"
 
 [dependencies]
