@@ -1,3 +1,5 @@
+mod logging;
+
 use std::f32::consts::PI;
 use std::net::SocketAddr;
 
@@ -12,6 +14,10 @@ use cplp_session::{LobbyClient, LobbyConfig, SessionManager};
 #[command(name = "cplp")]
 #[command(about = "CLAP Plugin Live Performance - P2P リアルタイムジャムセッション")]
 struct Cli {
+    /// ログをファイルに出力
+    #[arg(long, global = true)]
+    log_file: Option<String>,
+
     #[command(subcommand)]
     cmd: Option<Command>,
 }
@@ -167,12 +173,8 @@ fn main() -> anyhow::Result<()> {
         return show_status();
     };
 
-    // サブコマンド実行時のみ tracing を初期化
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
-        )
-        .init();
+    // サブコマンド実行時のみ tracing を初期化（non-blocking + プリセット対応）
+    let _log_guards = logging::init_logging(cli.log_file.as_deref());
 
     match cmd {
         Command::Play {

@@ -185,6 +185,7 @@ impl P2pManager {
     /// サーバーを起動して listen 開始
     ///
     /// Unison の spawn_listen() を使って非ブロッキングで起動する。
+    #[tracing::instrument(skip_all, fields(port = self.listen_addr.port()))]
     pub async fn start_server(&mut self) -> Result<(), CplpError> {
         if self.state != P2pState::Idle {
             return Err(CplpError::Network(format!(
@@ -265,6 +266,7 @@ impl P2pManager {
     ///
     /// spec/03 §4.1: 接続確立シーケンス
     /// ServerStarted または SessionActive（レイトジョイン）で接続可能
+    #[tracing::instrument(skip_all, fields(peer = %peer_id, addr = %peer_addr))]
     pub async fn connect_to_peer(
         &mut self,
         peer_id: PeerId,
@@ -320,6 +322,7 @@ impl P2pManager {
     /// 相手からの接続を受け入れた時のコールバック
     ///
     /// ServerHandle の ConnectionEvent で呼ばれる
+    #[tracing::instrument(skip_all, fields(peer = %peer_id, addr = %peer_addr))]
     pub async fn on_peer_connected(
         &mut self,
         peer_id: PeerId,
