@@ -199,6 +199,9 @@ fn build_ws_url(base_url: &str, token: &str) -> anyhow::Result<String> {
     };
 
     url.set_path("/ws");
+    // TODO: JWT をクエリパラメータで渡すとログに残る。
+    // WebSocket は接続時にカスタムヘッダーが使えないため、
+    // 将来的には接続後の最初のメッセージで認証する方式に移行すべき。
     url.query_pairs_mut().append_pair("token", token);
 
     Ok(url.to_string())

@@ -96,8 +96,8 @@ async fn create_group(
     state
         .db
         .query("RELATE $user_id->member_of->$group_id SET role = 'owner'")
-        .bind(("user_id", to_record_id(&user_id)))
-        .bind(("group_id", to_record_id(&group_id)))
+        .bind(("user_id", to_record_id(&user_id)?))
+        .bind(("group_id", to_record_id(&group_id)?))
         .await?
         .check()?;
 
@@ -214,8 +214,8 @@ async fn invite_member(
     state
         .db
         .query("RELATE $user_id->member_of->$group_id SET role = 'member'")
-        .bind(("user_id", to_record_id(&body.user_id)))
-        .bind(("group_id", to_record_id(&group_id)))
+        .bind(("user_id", to_record_id(&body.user_id)?))
+        .bind(("group_id", to_record_id(&group_id)?))
         .await?
         .check()?;
 

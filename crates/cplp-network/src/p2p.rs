@@ -282,7 +282,7 @@ impl P2pManager {
         let mut client = ProtocolClient::new_default()
             .map_err(|e| CplpError::Network(format!("Client creation failed: {}", e)))?;
 
-        let addr_str = format!("[::1]:{}", peer_addr.port());
+        let addr_str = peer_addr.to_string();
         client
             .connect(&addr_str)
             .await

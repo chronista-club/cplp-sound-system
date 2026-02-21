@@ -424,7 +424,7 @@ fn resolve_token(token: Option<String>) -> anyhow::Result<String> {
     match token {
         Some(t) => Ok(t),
         None => {
-            let dev_secret = "dev-secret";
+            let dev_secret = "dev-secret-do-not-use-in-production";
             let now = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)?
                 .as_secs();
@@ -444,10 +444,17 @@ fn resolve_token(token: Option<String>) -> anyhow::Result<String> {
     }
 }
 
-/// JWT トークンから user_id (sub) を検証なしで抽出
+/// JWT トークンから user_id (sub) を抽出
+///
+/// dev トークン（自己生成）の場合は署名検証をスキップし、
+/// 明示指定トークンの場合は exp 検証のみ行う（署名検証はサーバー側で実施）。
+/// NOTE: クライアント側では JWT secret を保持しないため完全な署名検証は不可。
 fn extract_user_id_from_token(config: &LobbyConfig) -> anyhow::Result<String> {
     let mut validation = jsonwebtoken::Validation::default();
+    // クライアント側は JWT secret を持たないため署名検証はサーバーに委任
+    // ただし exp は検証して期限切れトークンを早期に弾く
     validation.insecure_disable_signature_validation();
+    validation.validate_exp = true;
     let token_data = jsonwebtoken::decode::<serde_json::Value>(
         &config.token,
         &jsonwebtoken::DecodingKey::from_secret(&[]),

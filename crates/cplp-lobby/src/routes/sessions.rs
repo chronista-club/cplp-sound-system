@@ -135,8 +135,8 @@ async fn create_session(
 
     // 作成者を最初のピアとして追加
     db.query("RELATE $user_id->session_peers->$session_id SET addr = $addr")
-        .bind(("user_id", to_record_id(&auth_user.user_id)))
-        .bind(("session_id", to_record_id(&session_id)))
+        .bind(("user_id", to_record_id(&auth_user.user_id)?))
+        .bind(("session_id", to_record_id(&session_id)?))
         .bind(("addr", body.addr))
         .await?
         .check()?;
@@ -170,13 +170,35 @@ async fn join_session(
     let session_id = format!("sessions:{id}");
     let peer_addr = body.addr.clone();
 
-    // ピアとして追加
-    db.query("RELATE $user_id->session_peers->$session_id SET addr = $addr")
-        .bind(("user_id", to_record_id(&auth_user.user_id)))
-        .bind(("session_id", to_record_id(&session_id)))
-        .bind(("addr", body.addr))
-        .await?
-        .check()?;
+    // 既に参加済みかチェック（二重参加防止）
+    let mut existing = db
+        .query(
+            "SELECT count() AS total FROM session_peers \
+             WHERE in = type::thing($user_id) AND out = type::thing($session_id) GROUP ALL",
+        )
+        .bind(("user_id", auth_user.user_id.clone()))
+        .bind(("session_id", session_id.clone()))
+        .await?;
+    let existing_counts: Vec<CountRow> = existing.take(0)?;
+    if existing_counts.first().is_some_and(|c| c.total > 0) {
+        // 既に参加済み — アドレスだけ更新
+        db.query(
+            "UPDATE session_peers SET addr = $addr \
+             WHERE in = type::thing($user_id) AND out = type::thing($session_id)",
+        )
+        .bind(("user_id", auth_user.user_id.clone()))
+        .bind(("session_id", session_id.clone()))
+        .bind(("addr", body.addr.clone()))
+        .await?;
+    } else {
+        // 新規参加
+        db.query("RELATE $user_id->session_peers->$session_id SET addr = $addr")
+            .bind(("user_id", to_record_id(&auth_user.user_id)?))
+            .bind(("session_id", to_record_id(&session_id)?))
+            .bind(("addr", body.addr.clone()))
+            .await?
+            .check()?;
+    }
 
     // ピア数を確認
     let mut count_result = db

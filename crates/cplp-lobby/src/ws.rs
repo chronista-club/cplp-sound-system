@@ -79,7 +79,9 @@ impl ConnectionManager {
     pub async fn broadcast_to_group(&self, group_id: &str, event: WsEvent) {
         let groups = self.groups.read().await;
         if let Some(tx) = groups.get(group_id) {
-            let _ = tx.send(event);
+            if let Err(e) = tx.send(event) {
+                tracing::warn!("broadcast to group '{}' failed: {}", group_id, e);
+            }
         }
     }
 }

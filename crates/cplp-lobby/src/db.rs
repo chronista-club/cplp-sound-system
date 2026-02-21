@@ -10,9 +10,11 @@ use surrealdb::engine::any::Any;
 pub type Db = Surreal<Any>;
 
 /// 文字列 "table:id" を RecordId に変換する
-pub fn to_record_id(s: &str) -> RecordId {
-    let (table, id) = s.split_once(':').expect("record ID must contain ':'");
-    RecordId::from((table, id))
+pub fn to_record_id(s: &str) -> anyhow::Result<RecordId> {
+    let (table, id) = s
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("invalid record ID format (expected 'table:id'): {}", s))?;
+    Ok(RecordId::from((table, id)))
 }
 
 /// SurrealDB に接続し、スキーマを初期化する

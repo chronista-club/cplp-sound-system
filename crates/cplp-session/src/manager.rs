@@ -181,27 +181,35 @@ impl SessionManager {
         self.set_state(SessionState::WaitingForPeer);
         tracing::info!("ロビー経由でピアを待機中 (session: {})", session.id);
 
-        // WebSocket から PeerJoined を受信したら P2P 接続
+        // WebSocket から PeerJoined を受信したら P2P 接続（5分タイムアウト）
         let mut event_rx = lobby
             .take_event_rx()
             .ok_or_else(|| CplpError::Session("ロビーイベントチャネルは既に取得済みです".into()))?;
 
-        while let Some(event) = event_rx.recv().await {
-            match event {
-                LobbyEvent::PeerJoined { user_id, addr, .. } => {
-                    tracing::info!("ピア参加検知: {} @ {}", user_id, addr);
-                    let peer_addr: SocketAddr = addr
-                        .parse()
-                        .map_err(|e| CplpError::Session(format!("アドレスパース失敗: {e}")))?;
-                    let peer_id = PeerId::new(&user_id);
-                    self.p2p.connect_to_peer(peer_id, peer_addr).await?;
-                    break;
-                }
-                _ => {
-                    tracing::debug!("ロビーイベント (無視): {:?}", event);
+        let timeout_duration = std::time::Duration::from_secs(300);
+        let peer_joined = async {
+            while let Some(event) = event_rx.recv().await {
+                match event {
+                    LobbyEvent::PeerJoined { user_id, addr, .. } => {
+                        tracing::info!("ピア参加検知: {} @ {}", user_id, addr);
+                        let peer_addr: SocketAddr = addr
+                            .parse()
+                            .map_err(|e| CplpError::Session(format!("アドレスパース失敗: {e}")))?;
+                        let peer_id = PeerId::new(&user_id);
+                        self.p2p.connect_to_peer(peer_id, peer_addr).await?;
+                        return Ok(());
+                    }
+                    _ => {
+                        tracing::debug!("ロビーイベント (無視): {:?}", event);
+                    }
                 }
             }
-        }
+            Err(CplpError::Session("ロビー接続が切断されました".into()))
+        };
+
+        tokio::time::timeout(timeout_duration, peer_joined)
+            .await
+            .map_err(|_| CplpError::Session("ピア待機がタイムアウトしました (5分)".into()))??;
 
         self.wait_for_connection().await?;
         self.begin_streaming().await
