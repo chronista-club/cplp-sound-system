@@ -11,6 +11,9 @@ use cplp_core::{AppConfig, CplpError, PeerId};
 use cplp_network::{AudioStreamer, ControlHandler, P2pEvent, P2pManager, P2pState};
 use tokio::sync::watch;
 
+use crate::lobby::LobbyClient;
+use crate::signaling::LobbyEvent;
+
 /// セッション状態（外部監視用）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionState {
@@ -48,6 +51,20 @@ impl SessionManager {
         Self {
             config,
             p2p: P2pManager::new(port, PeerId::new(&format!("peer-{}", port))),
+            control: ControlHandler::new(),
+            state: SessionState::Initializing,
+            state_tx,
+            state_rx,
+        }
+    }
+
+    /// ロビー user_id を PeerId として使用するコンストラクタ
+    pub fn with_user_id(config: AppConfig, user_id: &str) -> Self {
+        let (state_tx, state_rx) = watch::channel(SessionState::Initializing);
+        let port = config.network.listen_port;
+        Self {
+            config,
+            p2p: P2pManager::new(port, PeerId::new(user_id)),
             control: ControlHandler::new(),
             state: SessionState::Initializing,
             state_tx,
@@ -135,6 +152,111 @@ impl SessionManager {
         Ok(streamer)
     }
 
+    /// ロビー経由でホストとしてセッションを開始
+    ///
+    /// 1. HTTP でセッション作成
+    /// 2. WebSocket でグループを購読
+    /// 3. P2P サーバー起動
+    /// 4. PeerJoined イベントで各ピアに P2P 接続
+    pub async fn host_via_lobby(
+        &mut self,
+        lobby: &mut LobbyClient,
+        group_id: &str,
+    ) -> Result<AudioStreamer, CplpError> {
+        // セッション作成
+        let session = lobby
+            .create_session(group_id)
+            .await
+            .map_err(|e| CplpError::Session(format!("セッション作成失敗: {e}")))?;
+        tracing::info!("セッション作成: {}", session.id);
+
+        // グループを購読
+        lobby
+            .subscribe_group(group_id)
+            .map_err(|e| CplpError::Session(format!("グループ購読失敗: {e}")))?;
+
+        // P2P サーバー起動
+        self.p2p.start_server().await?;
+        self.set_state(SessionState::WaitingForPeer);
+        tracing::info!("ロビー経由でピアを待機中 (session: {})", session.id);
+
+        // WebSocket から PeerJoined を受信したら P2P 接続
+        let mut event_rx = lobby.take_event_rx().ok_or_else(|| {
+            CplpError::Session("ロビーイベントチャネルは既に取得済みです".into())
+        })?;
+
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                LobbyEvent::PeerJoined {
+                    user_id, addr, ..
+                } => {
+                    tracing::info!("ピア参加検知: {} @ {}", user_id, addr);
+                    let peer_addr: SocketAddr = addr.parse().map_err(|e| {
+                        CplpError::Session(format!("アドレスパース失敗: {e}"))
+                    })?;
+                    let peer_id = PeerId::new(&user_id);
+                    self.p2p.connect_to_peer(peer_id, peer_addr).await?;
+                    break;
+                }
+                _ => {
+                    tracing::debug!("ロビーイベント (無視): {:?}", event);
+                }
+            }
+        }
+
+        self.wait_for_connection().await?;
+        self.begin_streaming().await
+    }
+
+    /// ロビー経由でゲストとしてセッションに参加
+    ///
+    /// 1. HTTP でセッション参加（ピアリスト取得）
+    /// 2. P2P サーバー起動
+    /// 3. 既存ピア全員に P2P 接続
+    pub async fn join_via_lobby(
+        &mut self,
+        lobby: &mut LobbyClient,
+        session_id: &str,
+    ) -> Result<AudioStreamer, CplpError> {
+        // セッション参加
+        let join_resp = lobby
+            .join_session(session_id)
+            .await
+            .map_err(|e| CplpError::Session(format!("セッション参加失敗: {e}")))?;
+        tracing::info!(
+            "セッション参加: {} (status: {}, peers: {})",
+            session_id,
+            join_resp.status,
+            join_resp.peers.len()
+        );
+
+        // P2P サーバー起動
+        self.p2p.start_server().await?;
+
+        // 自分以外のピアに P2P 接続
+        let my_addr = lobby.config().local_addr;
+        for peer in &join_resp.peers {
+            let peer_addr: SocketAddr = match peer.to_socket_addr() {
+                Ok(addr) => addr,
+                Err(e) => {
+                    tracing::warn!("ピアアドレスのパース失敗 ({}): {}", peer.addr, e);
+                    continue;
+                }
+            };
+            // 自分自身には接続しない
+            if peer_addr == my_addr {
+                continue;
+            }
+            tracing::info!("ピアに接続: {} @ {}", peer.user_id, peer_addr);
+            self.p2p
+                .connect_to_peer(peer.to_peer_id(), peer_addr)
+                .await?;
+        }
+
+        self.wait_for_connection().await?;
+        self.begin_streaming().await
+    }
+
     /// セッションを終了
     pub async fn shutdown(&mut self) -> Result<(), CplpError> {
         tracing::info!("セッションを終了中...");
@@ -159,6 +281,14 @@ mod tests {
     async fn test_new_session() {
         let session = SessionManager::new(AppConfig::default());
         assert_eq!(session.state(), &SessionState::Initializing);
+    }
+
+    #[tokio::test]
+    async fn test_with_user_id() {
+        let session = SessionManager::with_user_id(AppConfig::default(), "users:player1");
+        assert_eq!(session.state(), &SessionState::Initializing);
+        // PeerId がロビーの user_id で初期化されていることを確認
+        assert_eq!(session.p2p().local_peer_id(), &PeerId::new("users:player1"));
     }
 
     #[tokio::test]

@@ -85,7 +85,7 @@ impl ConnectionManager {
 }
 
 /// グローバル接続マネージャ
-static CONNECTIONS: LazyLock<ConnectionManager> = LazyLock::new(ConnectionManager::new);
+pub(crate) static CONNECTIONS: LazyLock<ConnectionManager> = LazyLock::new(ConnectionManager::new);
 
 // ---------------------------------------------------------------------------
 // ルーター

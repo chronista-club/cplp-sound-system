@@ -1,10 +1,12 @@
 use std::f32::consts::PI;
+use std::net::SocketAddr;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
-use cplp_core::config::AudioConfig;
+use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
+use cplp_session::{LobbyClient, LobbyConfig, SessionManager};
 
 #[derive(Parser)]
 #[command(name = "cplp-sound-system")]
@@ -50,6 +52,65 @@ enum Cli {
         /// 再生時間 (秒)
         #[arg(short, long, default_value_t = 3)]
         duration: u64,
+    },
+    /// ロビーサーバー経由でセッション管理
+    Lobby {
+        #[command(subcommand)]
+        cmd: LobbyCmd,
+    },
+}
+
+/// ロビーサブコマンド
+#[derive(Subcommand)]
+enum LobbyCmd {
+    /// グループ一覧を取得
+    Groups {
+        /// ロビーサーバー URL
+        #[arg(long, default_value = "http://localhost:3000")]
+        url: String,
+        /// JWT トークン（省略時は dev トークン生成）
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// ロビー経由でホストとしてセッション開始
+    Host {
+        /// グループ ID (例: testband)
+        #[arg(long)]
+        group: String,
+        /// シンセプラグイン ID
+        plugin_id: String,
+        /// ローカル P2P ポート
+        #[arg(short, long, default_value_t = 5000)]
+        port: u16,
+        /// ロビーサーバー URL
+        #[arg(long, default_value = "http://localhost:3000")]
+        url: String,
+        /// JWT トークン（省略時は dev トークン生成）
+        #[arg(long)]
+        token: Option<String>,
+        /// MIDI 入力ポート番号
+        #[arg(short, long)]
+        midi: Option<usize>,
+    },
+    /// ロビー経由でセッションに参加
+    Join {
+        /// セッション ID (例: sessions:abc123)
+        #[arg(long)]
+        session: String,
+        /// シンセプラグイン ID
+        plugin_id: String,
+        /// ローカル P2P ポート
+        #[arg(short, long, default_value_t = 5001)]
+        port: u16,
+        /// ロビーサーバー URL
+        #[arg(long, default_value = "http://localhost:3000")]
+        url: String,
+        /// JWT トークン（省略時は dev トークン生成）
+        #[arg(long)]
+        token: Option<String>,
+        /// MIDI 入力ポート番号
+        #[arg(short, long)]
+        midi: Option<usize>,
     },
 }
 
@@ -232,9 +293,179 @@ fn main() -> anyhow::Result<()> {
             std::thread::sleep(std::time::Duration::from_secs(duration));
             engine.stop();
         }
+        Cli::Lobby { cmd } => {
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(handle_lobby(cmd))?;
+        }
     }
 
     Ok(())
+}
+
+// ─── ロビーコマンド ──────────────────────────────────────
+
+async fn handle_lobby(cmd: LobbyCmd) -> anyhow::Result<()> {
+    match cmd {
+        LobbyCmd::Groups { url, token } => {
+            let token = resolve_token(token)?;
+            let lobby = LobbyClient::new(LobbyConfig {
+                base_url: url,
+                token,
+                local_addr: "[::1]:0".parse().unwrap(),
+            });
+
+            let groups = lobby.list_groups().await?;
+            if groups.is_empty() {
+                println!("所属グループなし");
+            } else {
+                println!("{} 個のグループ:\n", groups.len());
+                for g in &groups {
+                    println!("  {} — {}", g.id, g.name);
+                }
+            }
+        }
+        LobbyCmd::Host {
+            group,
+            plugin_id,
+            port,
+            url,
+            token,
+            midi: _midi,
+        } => {
+            let token = resolve_token(token)?;
+            let local_addr: SocketAddr = format!("[::1]:{port}").parse()?;
+
+            let mut lobby = LobbyClient::new(LobbyConfig {
+                base_url: url,
+                token,
+                local_addr,
+            });
+
+            // WebSocket 接続
+            lobby.connect_ws().await?;
+
+            let app_config = AppConfig {
+                audio: AudioConfig::default(),
+                network: NetworkConfig {
+                    listen_port: port,
+                    ..Default::default()
+                },
+            };
+
+            // ロビーの user_id を取得するため JWT をデコード
+            // (検証なし — dev 用途)
+            let user_id = extract_user_id_from_token(lobby.config())?;
+            let mut session = SessionManager::with_user_id(app_config, &user_id);
+
+            println!("ロビー経由でホスト開始 (group: {group}, port: {port}, plugin: {plugin_id})");
+            println!("ピアの参加を待機中... (Ctrl+C で停止)");
+
+            tokio::select! {
+                result = session.host_via_lobby(&mut lobby, &group) => {
+                    match result {
+                        Ok(_streamer) => {
+                            println!("セッション開始！");
+                            let _ = tokio::signal::ctrl_c().await;
+                        }
+                        Err(e) => tracing::error!("セッションエラー: {}", e),
+                    }
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    println!("\n停止中...");
+                }
+            }
+
+            session.shutdown().await.ok();
+        }
+        LobbyCmd::Join {
+            session: session_id,
+            plugin_id,
+            port,
+            url,
+            token,
+            midi: _midi,
+        } => {
+            let token = resolve_token(token)?;
+            let local_addr: SocketAddr = format!("[::1]:{port}").parse()?;
+
+            let mut lobby = LobbyClient::new(LobbyConfig {
+                base_url: url,
+                token,
+                local_addr,
+            });
+
+            let app_config = AppConfig {
+                audio: AudioConfig::default(),
+                network: NetworkConfig {
+                    listen_port: port,
+                    ..Default::default()
+                },
+            };
+
+            let user_id = extract_user_id_from_token(lobby.config())?;
+            let mut session = SessionManager::with_user_id(app_config, &user_id);
+
+            println!("ロビー経由でセッション参加 (session: {session_id}, port: {port}, plugin: {plugin_id})");
+
+            tokio::select! {
+                result = session.join_via_lobby(&mut lobby, &session_id) => {
+                    match result {
+                        Ok(_streamer) => {
+                            println!("セッション開始！");
+                            let _ = tokio::signal::ctrl_c().await;
+                        }
+                        Err(e) => tracing::error!("セッションエラー: {}", e),
+                    }
+                }
+                _ = tokio::signal::ctrl_c() => {
+                    println!("\n停止中...");
+                }
+            }
+
+            session.shutdown().await.ok();
+        }
+    }
+    Ok(())
+}
+
+/// トークンを解決: 明示指定があればそれを使い、なければ dev トークン生成
+fn resolve_token(token: Option<String>) -> anyhow::Result<String> {
+    match token {
+        Some(t) => Ok(t),
+        None => {
+            let dev_secret = "dev-secret";
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)?
+                .as_secs();
+            let claims = serde_json::json!({
+                "sub": "users:dev",
+                "exp": now + 24 * 60 * 60,
+                "iat": now,
+            });
+            let token = jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &jsonwebtoken::EncodingKey::from_secret(dev_secret.as_bytes()),
+            )?;
+            tracing::info!("dev トークン生成 (user: users:dev, secret: {dev_secret})");
+            Ok(token)
+        }
+    }
+}
+
+/// JWT トークンから user_id (sub) を検証なしで抽出
+fn extract_user_id_from_token(config: &LobbyConfig) -> anyhow::Result<String> {
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.insecure_disable_signature_validation();
+    let token_data = jsonwebtoken::decode::<serde_json::Value>(
+        &config.token,
+        &jsonwebtoken::DecodingKey::from_secret(&[]),
+        &validation,
+    )?;
+    token_data.claims["sub"]
+        .as_str()
+        .map(|s| s.to_string())
+        .ok_or_else(|| anyhow::anyhow!("JWT に sub クレームがありません"))
 }
 
 fn wait_for_duration(duration: u64) {

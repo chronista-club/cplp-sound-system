@@ -113,6 +113,7 @@ async fn create_session(
     Json(body): Json<CreateSessionRequest>,
 ) -> Result<Json<CreateSessionResponse>, AppError> {
     let db = &state.db;
+    let group_id_str = group_id.clone();
 
     // セッションを作成
     let mut result = db
@@ -140,6 +141,18 @@ async fn create_session(
         .await?
         .check()?;
 
+    // WebSocket 経由でグループにセッション開始を通知
+    crate::ws::CONNECTIONS
+        .broadcast_to_group(
+            &group_id_str,
+            crate::ws::WsEvent::SessionStarted {
+                group_id: group_id_str.clone(),
+                session_id: session_id.clone(),
+                started_by: auth_user.user_id,
+            },
+        )
+        .await;
+
     Ok(Json(CreateSessionResponse {
         id: session_id,
         status: "waiting".to_string(),
@@ -155,6 +168,7 @@ async fn join_session(
 ) -> Result<Json<JoinSessionResponse>, AppError> {
     let db = &state.db;
     let session_id = format!("sessions:{id}");
+    let peer_addr = body.addr.clone();
 
     // ピアとして追加
     db.query("RELATE $user_id->session_peers->$session_id SET addr = $addr")
@@ -189,6 +203,19 @@ async fn join_session(
     // ピア一覧を取得
     let peers = fetch_peers(db, &session_id).await?;
 
+    // WebSocket 経由で PeerJoined を broadcast
+    let group_id = fetch_group_id(db, &session_id).await?;
+    crate::ws::CONNECTIONS
+        .broadcast_to_group(
+            &group_id,
+            crate::ws::WsEvent::PeerJoined {
+                session_id: session_id.clone(),
+                user_id: auth_user.user_id,
+                addr: peer_addr,
+            },
+        )
+        .await;
+
     Ok(Json(JoinSessionResponse { status, peers }))
 }
 
@@ -211,6 +238,18 @@ async fn leave_session(
 ) -> Result<Json<LeaveSessionResponse>, AppError> {
     let db = &state.db;
     let session_id = format!("sessions:{id}");
+
+    // WebSocket 経由で PeerLeft を broadcast（削除前に group_id を取得）
+    let group_id = fetch_group_id(db, &session_id).await?;
+    crate::ws::CONNECTIONS
+        .broadcast_to_group(
+            &group_id,
+            crate::ws::WsEvent::PeerLeft {
+                session_id: session_id.clone(),
+                user_id: auth_user.user_id.clone(),
+            },
+        )
+        .await;
 
     // このユーザーの session_peers リレーションを削除
     db.query(
@@ -258,6 +297,24 @@ async fn leave_session(
 // ---------------------------------------------------------------------------
 // ヘルパー
 // ---------------------------------------------------------------------------
+
+/// セッションの group_id を取得する
+async fn fetch_group_id(db: &crate::db::Db, session_id: &str) -> anyhow::Result<String> {
+    #[derive(Debug, serde::Deserialize)]
+    struct GroupIdRow {
+        group_id: RecordId,
+    }
+
+    let mut result = db
+        .query("SELECT group_id FROM ONLY type::thing($session_id)")
+        .bind(("session_id", session_id.to_string()))
+        .await?;
+
+    let row: Option<GroupIdRow> = result.take(0)?;
+    Ok(row
+        .map(|r| r.group_id.to_string())
+        .unwrap_or_default())
+}
 
 /// セッションのピア一覧を取得する
 async fn fetch_peers(db: &crate::db::Db, session_id: &str) -> anyhow::Result<Vec<PeerInfo>> {
