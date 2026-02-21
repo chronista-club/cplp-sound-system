@@ -159,6 +159,7 @@ impl SessionManager {
     /// 2. WebSocket でグループを購読
     /// 3. P2P サーバー起動
     /// 4. PeerJoined イベントで各ピアに P2P 接続
+    #[tracing::instrument(skip_all, fields(group = %group_id))]
     pub async fn host_via_lobby(
         &mut self,
         lobby: &mut LobbyClient,
@@ -220,6 +221,7 @@ impl SessionManager {
     /// 1. HTTP でセッション参加（ピアリスト取得）
     /// 2. P2P サーバー起動
     /// 3. 既存ピア全員に P2P 接続
+    #[tracing::instrument(skip_all, fields(session = %session_id))]
     pub async fn join_via_lobby(
         &mut self,
         lobby: &mut LobbyClient,

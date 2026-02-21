@@ -42,6 +42,7 @@ impl LobbyClient {
     // -----------------------------------------------------------------------
 
     /// GET /groups — ユーザーが所属するグループ一覧
+    #[tracing::instrument(skip_all)]
     pub async fn list_groups(&self) -> anyhow::Result<Vec<GroupInfo>> {
         let url = format!("{}/groups", self.config.base_url);
         let resp = self
@@ -55,6 +56,7 @@ impl LobbyClient {
     }
 
     /// POST /groups/{group_id}/sessions — セッションを作成
+    #[tracing::instrument(skip_all, fields(group = %group_id))]
     pub async fn create_session(&self, group_id: &str) -> anyhow::Result<CreateSessionResponse> {
         let url = format!("{}/groups/{}/sessions", self.config.base_url, group_id);
         let body = serde_json::json!({ "addr": self.config.local_addr.to_string() });
@@ -70,6 +72,7 @@ impl LobbyClient {
     }
 
     /// POST /sessions/{id}/join — セッションに参加
+    #[tracing::instrument(skip_all, fields(session = %session_id))]
     pub async fn join_session(&self, session_id: &str) -> anyhow::Result<JoinSessionResponse> {
         let id_part = session_id.strip_prefix("sessions:").unwrap_or(session_id);
         let url = format!("{}/sessions/{}/join", self.config.base_url, id_part);
@@ -86,6 +89,7 @@ impl LobbyClient {
     }
 
     /// GET /sessions/{id}/peers — ピア一覧を取得
+    #[tracing::instrument(skip_all, fields(session = %session_id))]
     pub async fn get_peers(&self, session_id: &str) -> anyhow::Result<PeersResponse> {
         let id_part = session_id.strip_prefix("sessions:").unwrap_or(session_id);
         let url = format!("{}/sessions/{}/peers", self.config.base_url, id_part);
@@ -100,6 +104,7 @@ impl LobbyClient {
     }
 
     /// POST /sessions/{id}/leave — セッションから離脱
+    #[tracing::instrument(skip_all, fields(session = %session_id))]
     pub async fn leave_session(&self, session_id: &str) -> anyhow::Result<LeaveSessionResponse> {
         let id_part = session_id.strip_prefix("sessions:").unwrap_or(session_id);
         let url = format!("{}/sessions/{}/leave", self.config.base_url, id_part);
@@ -120,6 +125,7 @@ impl LobbyClient {
     /// WebSocket 接続を確立しバックグラウンドタスクを起動
     ///
     /// イベントは `take_event_rx()` で取得した receiver から受信する。
+    #[tracing::instrument(skip_all)]
     pub async fn connect_ws(&mut self) -> anyhow::Result<()> {
         let ws_url = build_ws_url(&self.config.base_url, &self.config.token)?;
 
