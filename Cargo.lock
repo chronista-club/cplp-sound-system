@@ -6738,6 +6738,7 @@ checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
 [[package]]
 name = "unison"
 version = "0.3.0"
+source = "git+https://github.com/chronista-club/unison.git#a6f195a560f8c0f3106b304e45edb55dc2a78043"
 dependencies = [
  "anyhow",
  "async-stream",

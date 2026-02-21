@@ -43,7 +43,7 @@ winit = "0.30"
 clack-finder = { git = "https://github.com/prokopyl/clack" }
 
 # P2P 通信
-unison = { path = "../unison/crates/unison-protocol" }
+unison = { git = "https://github.com/chronista-club/unison.git" }
 
 # Lock-free データ構造
 ringbuf = "0.4"
