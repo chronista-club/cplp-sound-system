@@ -103,8 +103,11 @@ cplp session lobby join --session <SESSION_ID> <PLUGIN_ID>
 # ファイルにログ出力
 cplp play <PLUGIN_ID> --log-file cplp.log
 
-# 環境変数でログプリセット指定
-CPLP_LOG=debug cplp play <PLUGIN_ID>
+# プリセットでログレベル指定
+CPLP_LOG=dev cplp device scan          # debug + audio trace
+CPLP_LOG=audio cplp play <PLUGIN_ID>   # オーディオ系 trace
+CPLP_LOG=network cplp session listen   # ネットワーク系 debug
+CPLP_LOG=production cplp play <PLUGIN_ID>  # warn 以上のみ
 ```
 
 ## 技術スタック
