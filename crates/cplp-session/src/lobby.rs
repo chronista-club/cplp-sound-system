@@ -237,4 +237,45 @@ mod tests {
         let client = LobbyClient::new(config);
         assert_eq!(client.config().base_url, "http://localhost:3000");
     }
+
+    #[test]
+    fn test_build_ws_url_invalid_url() {
+        let result = build_ws_url("not-a-url", "token");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_build_ws_url_token_with_special_chars() {
+        let url = build_ws_url("http://localhost:3000", "tok=en&foo").unwrap();
+        // URL エンコードされて安全に渡されること
+        assert!(url.contains("/ws?"));
+        assert!(url.contains("token="));
+    }
+
+    #[test]
+    fn test_subscribe_group_without_ws_connection() {
+        let config = LobbyConfig {
+            base_url: "http://localhost:3000".into(),
+            token: "test-token".into(),
+            local_addr: "[::1]:5000".parse().unwrap(),
+        };
+        let client = LobbyClient::new(config);
+        let result = client.subscribe_group("group-1");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("WebSocket 未接続"));
+    }
+
+    #[test]
+    fn test_take_event_rx_none_without_ws() {
+        let config = LobbyConfig {
+            base_url: "http://localhost:3000".into(),
+            token: "test-token".into(),
+            local_addr: "[::1]:5000".parse().unwrap(),
+        };
+        let mut client = LobbyClient::new(config);
+        assert!(
+            client.take_event_rx().is_none(),
+            "WS 未接続時は None を返すべき"
+        );
+    }
 }

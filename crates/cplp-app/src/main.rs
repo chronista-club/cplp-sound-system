@@ -481,3 +481,108 @@ fn wait_forever() {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
+
+// ---------------------------------------------------------------------------
+// テスト
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// テスト用 JWT を生成（任意の claims で）
+    fn make_token(claims: serde_json::Value) -> String {
+        jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        )
+        .unwrap()
+    }
+
+    fn make_config(token: &str) -> LobbyConfig {
+        LobbyConfig {
+            base_url: "http://localhost:3000".into(),
+            token: token.to_string(),
+            local_addr: "[::1]:5000".parse().unwrap(),
+        }
+    }
+
+    // -- extract_user_id_from_token --
+
+    #[test]
+    fn test_extract_user_id_valid_token() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = make_token(serde_json::json!({
+            "sub": "users:player1",
+            "exp": now + 3600,
+            "iat": now,
+        }));
+        let config = make_config(&token);
+        let result = extract_user_id_from_token(&config).unwrap();
+        assert_eq!(result, "users:player1");
+    }
+
+    #[test]
+    fn test_extract_user_id_expired_token() {
+        // exp を過去の固定値に設定して期限切れを検証
+        let token = make_token(serde_json::json!({
+            "sub": "users:expired",
+            "exp": 1_000_000_000_u64,
+            "iat": 999_999_000_u64,
+        }));
+        let config = make_config(&token);
+        let result = extract_user_id_from_token(&config);
+        assert!(result.is_err(), "期限切れトークンはエラーになるべき");
+    }
+
+    #[test]
+    fn test_extract_user_id_no_sub_claim() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let token = make_token(serde_json::json!({
+            "exp": now + 3600,
+            "iat": now,
+        }));
+        let config = make_config(&token);
+        let result = extract_user_id_from_token(&config);
+        assert!(
+            result.is_err(),
+            "sub クレームがないトークンはエラーになるべき"
+        );
+        assert!(result.unwrap_err().to_string().contains("sub"));
+    }
+
+    #[test]
+    fn test_extract_user_id_garbage_token() {
+        let config = make_config("not-a-jwt-token");
+        let result = extract_user_id_from_token(&config);
+        assert!(result.is_err(), "不正なトークンはエラーになるべき");
+    }
+
+    // -- resolve_token --
+
+    #[test]
+    fn test_resolve_token_explicit() {
+        let token = resolve_token(Some("my-explicit-token".into())).unwrap();
+        assert_eq!(token, "my-explicit-token");
+    }
+
+    #[test]
+    fn test_resolve_token_dev_generation() {
+        let token = resolve_token(None).unwrap();
+        // dev トークンは有効な JWT 形式（header.payload.signature）
+        let parts: Vec<&str> = token.split('.').collect();
+        assert_eq!(parts.len(), 3, "JWT は 3 パートであるべき");
+
+        // 生成されたトークンで user_id を抽出できることも検証
+        let config = make_config(&token);
+        let user_id = extract_user_id_from_token(&config).unwrap();
+        assert_eq!(user_id, "users:dev");
+    }
+}

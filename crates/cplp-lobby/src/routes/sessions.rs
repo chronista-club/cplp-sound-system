@@ -552,4 +552,44 @@ mod tests {
         let body: serde_json::Value = res.json();
         assert_eq!(body["status"], "ended");
     }
+
+    #[tokio::test]
+    async fn test_join_session_duplicate_updates_addr() {
+        let (server, _db, token) = test_app().await;
+        let (name, value) = auth_header(&token);
+
+        // セッション作成
+        let res = server
+            .post("/groups/testgroup/sessions")
+            .add_header(name.clone(), value.clone())
+            .json(&serde_json::json!({ "addr": "192.168.1.1:5000" }))
+            .await;
+        res.assert_status_ok();
+        let id_part = res.json::<serde_json::Value>()["id"]
+            .as_str()
+            .unwrap()
+            .strip_prefix("sessions:")
+            .unwrap()
+            .to_string();
+
+        // 同じユーザーが再度 join（アドレス変更）
+        let res = server
+            .post(&format!("/sessions/{id_part}/join"))
+            .add_header(name.clone(), value.clone())
+            .json(&serde_json::json!({ "addr": "192.168.1.1:6000" }))
+            .await;
+        res.assert_status_ok();
+
+        // ピア数が増えていないこと（1のまま）
+        let res = server
+            .get(&format!("/sessions/{id_part}/peers"))
+            .add_header(name.clone(), value.clone())
+            .await;
+        res.assert_status_ok();
+        let body: serde_json::Value = res.json();
+        let peers = body["peers"].as_array().unwrap();
+        assert_eq!(peers.len(), 1, "二重参加でピアが増えてはいけない");
+        // アドレスが更新されていること
+        assert_eq!(peers[0]["addr"], "192.168.1.1:6000");
+    }
 }

@@ -211,4 +211,100 @@ mod tests {
         assert_eq!(resp.peers.len(), 2);
         assert_eq!(resp.peers[0].user_id, "users:host");
     }
+
+    // -- LobbyEvent 残りバリアント --
+
+    #[test]
+    fn test_lobby_event_session_started_roundtrip() {
+        let event = LobbyEvent::SessionStarted {
+            group_id: "groups:band1".into(),
+            session_id: "sessions:s1".into(),
+            started_by: "users:host".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"SessionStarted\""));
+        let parsed: LobbyEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            LobbyEvent::SessionStarted {
+                group_id,
+                session_id,
+                started_by,
+            } => {
+                assert_eq!(group_id, "groups:band1");
+                assert_eq!(session_id, "sessions:s1");
+                assert_eq!(started_by, "users:host");
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    #[test]
+    fn test_lobby_event_peer_left_roundtrip() {
+        let event = LobbyEvent::PeerLeft {
+            session_id: "sessions:s1".into(),
+            user_id: "users:u1".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"PeerLeft\""));
+        let parsed: LobbyEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            LobbyEvent::PeerLeft {
+                session_id,
+                user_id,
+            } => {
+                assert_eq!(session_id, "sessions:s1");
+                assert_eq!(user_id, "users:u1");
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    #[test]
+    fn test_lobby_event_presence_roundtrip() {
+        let event = LobbyEvent::Presence {
+            user_id: "users:u1".into(),
+            status: "online".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"Presence\""));
+        let parsed: LobbyEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            LobbyEvent::Presence { user_id, status } => {
+                assert_eq!(user_id, "users:u1");
+                assert_eq!(status, "online");
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    // -- LobbyCommand 残りバリアント --
+
+    #[test]
+    fn test_lobby_command_set_presence_roundtrip() {
+        let cmd = LobbyCommand::SetPresence {
+            status: "online".into(),
+        };
+        let json = serde_json::to_string(&cmd).unwrap();
+        let parsed: LobbyCommand = serde_json::from_str(&json).unwrap();
+        match parsed {
+            LobbyCommand::SetPresence { status } => {
+                assert_eq!(status, "online");
+            }
+            _ => panic!("unexpected variant"),
+        }
+    }
+
+    // -- LobbyPeerInfo エラーケース --
+
+    #[test]
+    fn test_lobby_peer_info_invalid_addr() {
+        let info = LobbyPeerInfo {
+            user_id: "users:bad".into(),
+            addr: "not-an-address".into(),
+        };
+        assert!(
+            info.to_socket_addr().is_err(),
+            "不正なアドレスはエラーになるべき"
+        );
+    }
 }

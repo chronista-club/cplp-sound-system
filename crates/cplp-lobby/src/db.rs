@@ -66,6 +66,36 @@ mod tests {
         oauth_id: String,
     }
 
+    #[test]
+    fn to_record_id_valid() {
+        let rid = to_record_id("users:abc123").unwrap();
+        assert_eq!(rid, RecordId::from(("users", "abc123")));
+    }
+
+    #[test]
+    fn to_record_id_no_colon() {
+        let result = to_record_id("no-colon");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("invalid record ID format")
+        );
+    }
+
+    #[test]
+    fn to_record_id_empty() {
+        assert!(to_record_id("").is_err());
+    }
+
+    #[test]
+    fn to_record_id_multiple_colons() {
+        // split_once は最初の ':' で分割 → table="groups", id="complex:id"
+        let rid = to_record_id("groups:complex:id").unwrap();
+        assert_eq!(rid, RecordId::from(("groups", "complex:id")));
+    }
+
     #[tokio::test]
     async fn init_test_db_succeeds() {
         let db = init_test_db().await.expect("init_test_db should succeed");
