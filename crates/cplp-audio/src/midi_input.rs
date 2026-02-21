@@ -60,7 +60,7 @@ impl MidiInputManager {
                 },
                 (),
             )
-            .context("MIDI ポートへの接続に失敗")?;
+            .map_err(|e| anyhow::anyhow!("MIDI ポートへの接続に失敗: {}", e))?;
 
         Ok(Self {
             _connection: connection,
