@@ -15,11 +15,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # unison は相対パス依存（../unison）なので同階層に checkout
-      - uses: actions/checkout@v4
-        with:
-          repository: chronista-club/unison
-          path: ../unison
+      # unison は相対パス依存（../unison）— ワークスペース外には checkout 不可なので
+      # git clone + symlink で解決
+      - name: Clone unison dependency
+        run: |
+          git clone --depth 1 https://github.com/chronista-club/unison.git .unison-dep
+          ln -s "$GITHUB_WORKSPACE/.unison-dep" ../unison
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -36,10 +37,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-        with:
-          repository: chronista-club/unison
-          path: ../unison
+      - name: Clone unison dependency
+        run: |
+          git clone --depth 1 https://github.com/chronista-club/unison.git .unison-dep
+          ln -s "$GITHUB_WORKSPACE/.unison-dep" ../unison
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -57,6 +58,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # cargo fmt も cargo metadata で unison パスを解決する必要がある
+      - name: Clone unison dependency
+        run: |
+          git clone --depth 1 https://github.com/chronista-club/unison.git .unison-dep
+          ln -s "$GITHUB_WORKSPACE/.unison-dep" ../unison
+
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -69,10 +76,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/checkout@v4
-        with:
-          repository: chronista-club/unison
-          path: ../unison
+      - name: Clone unison dependency
+        run: |
+          git clone --depth 1 https://github.com/chronista-club/unison.git .unison-dep
+          ln -s "$GITHUB_WORKSPACE/.unison-dep" ../unison
 
       - uses: rustsec/audit-check@v2
         with:
