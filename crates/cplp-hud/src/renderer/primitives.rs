@@ -23,6 +23,13 @@ pub struct Rect {
     pub h: f32,
 }
 
+impl Rect {
+    pub fn contains(&self, pos: Vec2) -> bool {
+        pos.x >= self.x && pos.x <= self.x + self.w
+            && pos.y >= self.y && pos.y <= self.y + self.h
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Vec2 {
     pub x: f32,
