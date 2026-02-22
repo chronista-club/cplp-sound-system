@@ -1,5 +1,5 @@
-use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::Renderer;
+use crate::renderer::primitives::{Color, Rect, Vec2};
 
 /// 表示するサンプル数
 const DISPLAY_SAMPLES: usize = 512;

@@ -1,4 +1,4 @@
-use rustfft::{num_complex::Complex, FftPlanner};
+use rustfft::{FftPlanner, num_complex::Complex};
 
 use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect};
@@ -90,7 +90,15 @@ impl Spectrum {
 
             // バーの色: 高さに応じてグラデーション
             let color = bar_color(mag, &self.color);
-            renderer.rect(Rect { x, y, w: bar_w, h: bar_h }, color);
+            renderer.rect(
+                Rect {
+                    x,
+                    y,
+                    w: bar_w,
+                    h: bar_h,
+                },
+                color,
+            );
         }
     }
 }
@@ -138,14 +146,12 @@ mod tests {
 
     #[test]
     fn spectrum_update_with_silence() {
-        let mut spec = Spectrum::new(
-            Color {
-                r: 0.2,
-                g: 0.8,
-                b: 0.9,
-                a: 1.0,
-            },
-        );
+        let mut spec = Spectrum::new(Color {
+            r: 0.2,
+            g: 0.8,
+            b: 0.9,
+            a: 1.0,
+        });
         let silence = vec![0.0f32; FFT_SIZE];
         spec.update(&silence);
         // 無音なら全バンドほぼゼロ
@@ -156,14 +162,12 @@ mod tests {
 
     #[test]
     fn spectrum_update_with_tone() {
-        let mut spec = Spectrum::new(
-            Color {
-                r: 0.2,
-                g: 0.8,
-                b: 0.9,
-                a: 1.0,
-            },
-        );
+        let mut spec = Spectrum::new(Color {
+            r: 0.2,
+            g: 0.8,
+            b: 0.9,
+            a: 1.0,
+        });
         // 440Hz のサイン波（サンプルレート 44100Hz 想定）
         let samples: Vec<f32> = (0..FFT_SIZE)
             .map(|i| (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 44100.0).sin())

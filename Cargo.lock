@@ -1660,6 +1660,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cplp-cadence"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "cplp-audio",
+ "cplp-core",
+ "cplp-network",
+ "cplp-session",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cplp-core"
 version = "0.1.0"
 dependencies = [

@@ -1,13 +1,28 @@
-use crate::renderer::primitives::{Color, Rect, Vec2};
-use crate::renderer::text::TextEntry;
-use crate::renderer::Renderer;
 use super::event::{EventResponse, Key, MouseButton, UiEvent};
 use super::widget::Widget;
+use crate::renderer::Renderer;
+use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::text::TextEntry;
 
 /// HUD 風デザイン定数
-const BG_COLOR: Color = Color { r: 0.12, g: 0.12, b: 0.15, a: 0.9 };
-const HOVER_COLOR: Color = Color { r: 0.2, g: 0.2, b: 0.25, a: 0.9 };
-const ACTIVE_COLOR: Color = Color { r: 0.2, g: 0.6, b: 0.9, a: 0.9 };
+const BG_COLOR: Color = Color {
+    r: 0.12,
+    g: 0.12,
+    b: 0.15,
+    a: 0.9,
+};
+const HOVER_COLOR: Color = Color {
+    r: 0.2,
+    g: 0.2,
+    b: 0.25,
+    a: 0.9,
+};
+const ACTIVE_COLOR: Color = Color {
+    r: 0.2,
+    g: 0.6,
+    b: 0.9,
+    a: 0.9,
+};
 const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
 const TEXT_SIZE: f32 = 14.0;
 const ITEM_HEIGHT: f32 = 30.0;
@@ -173,9 +188,17 @@ mod tests {
     fn list_selection() {
         let mut list = List::new(5);
         list.set_items(vec!["A".into(), "B".into(), "C".into()]);
-        let rect = Rect { x: 0.0, y: 0.0, w: 200.0, h: 150.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 200.0,
+            h: 150.0,
+        };
         // クリックで2番目を選択 (item_height = 30.0)
-        list.event(&UiEvent::MouseDown(Vec2 { x: 50.0, y: 35.0 }, MouseButton::Left), rect);
+        list.event(
+            &UiEvent::MouseDown(Vec2 { x: 50.0, y: 35.0 }, MouseButton::Left),
+            rect,
+        );
         assert_eq!(list.selected(), Some(1));
     }
 
@@ -183,7 +206,12 @@ mod tests {
     fn list_keyboard_navigation() {
         let mut list = List::new(5);
         list.set_items(vec!["A".into(), "B".into(), "C".into()]);
-        let rect = Rect { x: 0.0, y: 0.0, w: 200.0, h: 150.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 200.0,
+            h: 150.0,
+        };
 
         // Down で初期選択
         list.event(&UiEvent::KeyDown(Key::Down), rect);
@@ -206,7 +234,12 @@ mod tests {
     fn list_hover_tracking() {
         let mut list = List::new(5);
         list.set_items(vec!["A".into(), "B".into(), "C".into()]);
-        let rect = Rect { x: 0.0, y: 0.0, w: 200.0, h: 150.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 200.0,
+            h: 150.0,
+        };
 
         list.event(&UiEvent::MouseMove(Vec2 { x: 50.0, y: 65.0 }), rect);
         assert_eq!(list.hovered_index, Some(2));
@@ -220,7 +253,12 @@ mod tests {
     fn list_scroll() {
         let mut list = List::new(2);
         list.set_items(vec!["A".into(), "B".into(), "C".into(), "D".into()]);
-        let rect = Rect { x: 0.0, y: 0.0, w: 200.0, h: 60.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 200.0,
+            h: 60.0,
+        };
 
         assert_eq!(list.scroll_offset, 0);
         // 下スクロール（delta.y < 0）

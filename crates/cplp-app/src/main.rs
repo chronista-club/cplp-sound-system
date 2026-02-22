@@ -10,8 +10,9 @@ use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
 use cplp_hud::HudContext;
+use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
+use cplp_network::control::{CommandMode, ControlEvent};
 use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
 
 #[derive(Parser)]
@@ -290,15 +291,24 @@ fn main() -> anyhow::Result<()> {
                 midi,
                 hud,
             } => {
-                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let meters = if hud {
+                    Some(Arc::new(AudioMeters::default()))
+                } else {
+                    None
+                };
                 let (pcm_writer, pcm_output) = if hud {
                     let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
                     (Some(PcmWriter::new(input)), Some(output))
                 } else {
                     (None, None)
                 };
-                let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
+                let (mut engine, _synth_handle, _fx_handle, _midi_conn) = setup_session_audio(
+                    &plugin_id,
+                    fx.as_deref(),
+                    midi,
+                    meters.clone(),
+                    pcm_writer,
+                )?;
 
                 println!("ピアの接続を待機中 (port {port})...");
                 println!("(Ctrl+C で停止)");
@@ -312,7 +322,13 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(meters) = meters {
-                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Host)?;
+                    run_session_with_hud(
+                        &mut engine,
+                        meters,
+                        pcm_output.unwrap(),
+                        app_config,
+                        SessionMode::Host,
+                    )?;
                 } else {
                     run_session_blocking(&mut engine, app_config, SessionMode::Host)?;
                 }
@@ -326,15 +342,24 @@ fn main() -> anyhow::Result<()> {
                 hud,
             } => {
                 let peer_addr: SocketAddr = addr.parse()?;
-                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let meters = if hud {
+                    Some(Arc::new(AudioMeters::default()))
+                } else {
+                    None
+                };
                 let (pcm_writer, pcm_output) = if hud {
                     let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
                     (Some(PcmWriter::new(input)), Some(output))
                 } else {
                     (None, None)
                 };
-                let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
+                let (mut engine, _synth_handle, _fx_handle, _midi_conn) = setup_session_audio(
+                    &plugin_id,
+                    fx.as_deref(),
+                    midi,
+                    meters.clone(),
+                    pcm_writer,
+                )?;
 
                 println!("{} に接続中...", peer_addr);
                 println!("(Ctrl+C で停止)");
@@ -348,7 +373,13 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(meters) = meters {
-                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Join(peer_addr))?;
+                    run_session_with_hud(
+                        &mut engine,
+                        meters,
+                        pcm_output.unwrap(),
+                        app_config,
+                        SessionMode::Join(peer_addr),
+                    )?;
                 } else {
                     run_session_blocking(&mut engine, app_config, SessionMode::Join(peer_addr))?;
                 }
@@ -753,8 +784,7 @@ fn run_session_with_hud(
     app_config: AppConfig,
     mode: SessionMode,
 ) -> anyhow::Result<()> {
-    let (mut buf_input, buf_output) =
-        triple_buffer::triple_buffer(&SessionSnapshot::default());
+    let (mut buf_input, buf_output) = triple_buffer::triple_buffer(&SessionSnapshot::default());
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
@@ -767,16 +797,24 @@ fn run_session_with_hud(
                 SessionMode::Join(addr) => session.join(addr).await,
             };
 
-            // セッション状態を TripleBuffer に転送し続ける
+            // セッション状態の転送とコマンド入力を並行実行
             let mut watch = state_rx;
-            loop {
-                if watch.changed().await.is_err() {
-                    break;
-                }
-                let state = watch.borrow().clone();
-                buf_input.write(session_state_to_snapshot(&state));
-                if matches!(state, SessionState::Disconnected) {
-                    break;
+            tokio::select! {
+                _ = async {
+                    // セッション状態を TripleBuffer に転送し続ける
+                    loop {
+                        if watch.changed().await.is_err() {
+                            break;
+                        }
+                        let state = watch.borrow().clone();
+                        buf_input.write(session_state_to_snapshot(&state));
+                        if matches!(state, SessionState::Disconnected) {
+                            break;
+                        }
+                    }
+                } => {}
+                _ = command_input_loop(&session) => {
+                    tracing::info!("コマンド入力ループが終了");
                 }
             }
             session.shutdown().await.ok();
@@ -792,6 +830,98 @@ fn run_session_with_hud(
     cplp_hud::app::run_with_context(ctx)?;
     engine.stop();
     Ok(())
+}
+
+/// stdin の1行をパースして (CommandMode, text) を返す
+///
+/// - `/ask <text>` → `CommandMode::Ask`
+/// - `/parse <text>` → `CommandMode::Parse`
+/// - その他の非空行 → `CommandMode::Parse`（デフォルト）
+/// - 空行 → `None`（スキップ）
+fn parse_command_line(line: &str) -> Option<(CommandMode, String)> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    // "/ask" のみ（テキストなし）もスキップ
+    if trimmed == "/ask" || trimmed == "/parse" {
+        return None;
+    }
+
+    if let Some(text) = trimmed.strip_prefix("/ask ") {
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        Some((CommandMode::Ask, text.to_string()))
+    } else if let Some(text) = trimmed.strip_prefix("/parse ") {
+        let text = text.trim();
+        if text.is_empty() {
+            return None;
+        }
+        Some((CommandMode::Parse, text.to_string()))
+    } else {
+        Some((CommandMode::Parse, trimmed.to_string()))
+    }
+}
+
+/// stdin からコマンドを読み取り、ControlEvent::Command を全ピアに送信するループ
+///
+/// セッション中に `/parse <text>` や `/ask <text>` を入力すると、
+/// Cadence（ピア）に ControlEvent::Command を broadcast する。
+async fn command_input_loop(session: &SessionManager) {
+    let stdin = tokio::io::stdin();
+    let reader = tokio::io::BufReader::new(stdin);
+
+    use tokio::io::AsyncBufReadExt;
+    let mut lines = reader.lines();
+
+    println!("コマンド入力待機中（/parse <text>, /ask <text>, または直接テキスト入力）");
+
+    while let Ok(Some(line)) = lines.next_line().await {
+        let Some((mode, text)) = parse_command_line(&line) else {
+            continue;
+        };
+
+        let local_id = session.p2p().local_peer_id().clone();
+        let event = ControlEvent::Command {
+            from: local_id,
+            mode,
+            text: text.clone(),
+        };
+
+        // control チャネルのマップを構築して broadcast
+        // UnisonChannel は Clone 未実装のため、peers() から直接参照で broadcast する
+        // TODO: UnisonChannel が Clone 対応したら HashMap<PeerId, UnisonChannel> を構築して
+        //       ControlHandler::broadcast() を使う。現時点では peers() の control チャネルを
+        //       直接イテレートして send_event する。
+        let json = match serde_json::to_value(&event) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("コマンドのシリアライズに失敗: {}", e);
+                continue;
+            }
+        };
+
+        let peers = session.p2p().peers();
+        let mut sent = 0usize;
+        for (peer_id, conn) in peers.iter() {
+            if let Some(ref channels) = conn.channels {
+                if let Err(e) = channels.control.send_event("control", json.clone()).await {
+                    tracing::warn!("コマンド送信失敗 (peer: {}): {}", peer_id, e);
+                } else {
+                    sent += 1;
+                }
+            }
+        }
+
+        if sent > 0 {
+            tracing::info!("コマンド送信完了: {} ピアに配信 (text: {})", sent, text);
+        } else {
+            println!("接続中のピアがありません。コマンドは送信されませんでした。");
+        }
+    }
 }
 
 /// HUD なしでセッションを実行（tokio ランタイムでブロック）
@@ -812,7 +942,15 @@ fn run_session_blocking(
         match result {
             Ok(_streamer) => {
                 println!("セッション開始！");
-                let _ = tokio::signal::ctrl_c().await;
+                // streamer を保持しつつ、stdin コマンドループと Ctrl+C を並行実行
+                tokio::select! {
+                    _ = command_input_loop(&session) => {
+                        tracing::info!("コマンド入力ループが終了");
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        println!("\n停止中...");
+                    }
+                }
             }
             Err(e) => tracing::error!("セッションエラー: {}", e),
         }
@@ -1001,5 +1139,58 @@ mod tests {
         let config = make_config(&token);
         let user_id = extract_user_id_from_token(&config).unwrap();
         assert_eq!(user_id, "users:dev");
+    }
+
+    // -- parse_command_line --
+
+    #[test]
+    fn test_parse_command_line_ask() {
+        let result = parse_command_line("/ask C major chord");
+        let (mode, text) = result.expect("Some を返すべき");
+        assert!(matches!(mode, CommandMode::Ask));
+        assert_eq!(text, "C major chord");
+    }
+
+    #[test]
+    fn test_parse_command_line_parse() {
+        let result = parse_command_line("/parse C4 E4 G4 120bpm");
+        let (mode, text) = result.expect("Some を返すべき");
+        assert!(matches!(mode, CommandMode::Parse));
+        assert_eq!(text, "C4 E4 G4 120bpm");
+    }
+
+    #[test]
+    fn test_parse_command_line_default_mode() {
+        let result = parse_command_line("C major scale");
+        let (mode, text) = result.expect("Some を返すべき");
+        assert!(matches!(mode, CommandMode::Parse), "デフォルトは Parse");
+        assert_eq!(text, "C major scale");
+    }
+
+    #[test]
+    fn test_parse_command_line_empty() {
+        assert!(parse_command_line("").is_none());
+        assert!(parse_command_line("   ").is_none());
+        assert!(parse_command_line("\n").is_none());
+    }
+
+    #[test]
+    fn test_parse_command_line_ask_empty_text() {
+        assert!(parse_command_line("/ask ").is_none());
+        assert!(parse_command_line("/ask   ").is_none());
+    }
+
+    #[test]
+    fn test_parse_command_line_parse_empty_text() {
+        assert!(parse_command_line("/parse ").is_none());
+        assert!(parse_command_line("/parse   ").is_none());
+    }
+
+    #[test]
+    fn test_parse_command_line_with_leading_whitespace() {
+        let result = parse_command_line("  /ask what is a tritone?  ");
+        let (mode, text) = result.expect("Some を返すべき");
+        assert!(matches!(mode, CommandMode::Ask));
+        assert_eq!(text, "what is a tritone?");
     }
 }

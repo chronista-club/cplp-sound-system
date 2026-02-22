@@ -70,6 +70,34 @@ pub enum ControlEvent {
         name: String,
         vendor: String,
     },
+
+    // ── Cadence コマンド ──
+    Command {
+        from: PeerId,
+        mode: CommandMode,
+        text: String,
+    },
+    CommandAck {
+        status: CommandStatus,
+        message: String,
+    },
+    PluginSwitch {
+        from: PeerId,
+        plugin_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CommandMode {
+    Parse,
+    Ask,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CommandStatus {
+    Accepted,
+    Rejected,
+    Error,
 }
 
 /// ControlHandler: control チャネルの処理
@@ -265,5 +293,59 @@ mod tests {
         let event = ControlEvent::PeerLeft { peer: peer.clone() };
         handler.apply_event(&event);
         assert!(handler.mixer_state().tracks.is_empty());
+    }
+
+    #[test]
+    fn command_event_serialization() {
+        let event = ControlEvent::Command {
+            from: PeerId::new("player-a"),
+            mode: CommandMode::Parse,
+            text: "C major scale 120bpm".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: ControlEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ControlEvent::Command { from, mode, text } => {
+                assert_eq!(from, PeerId::new("player-a"));
+                assert!(matches!(mode, CommandMode::Parse));
+                assert_eq!(text, "C major scale 120bpm");
+            }
+            _ => panic!("Expected Command variant"),
+        }
+    }
+
+    #[test]
+    fn command_ack_serialization() {
+        let event = ControlEvent::CommandAck {
+            status: CommandStatus::Accepted,
+            message: "演奏開始".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let parsed: ControlEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ControlEvent::CommandAck { status, message } => {
+                assert!(matches!(status, CommandStatus::Accepted));
+                assert_eq!(message, "演奏開始");
+            }
+            _ => panic!("Expected CommandAck variant"),
+        }
+    }
+
+    #[test]
+    fn plugin_switch_serialization() {
+        let event = ControlEvent::PluginSwitch {
+            from: PeerId::new("player-a"),
+            plugin_id: "com.u-he.Diva".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("PluginSwitch"));
+        let parsed: ControlEvent = serde_json::from_str(&json).unwrap();
+        match parsed {
+            ControlEvent::PluginSwitch { from, plugin_id } => {
+                assert_eq!(from, PeerId::new("player-a"));
+                assert_eq!(plugin_id, "com.u-he.Diva");
+            }
+            _ => panic!("Expected PluginSwitch variant"),
+        }
     }
 }

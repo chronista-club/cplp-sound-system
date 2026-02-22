@@ -1,11 +1,11 @@
 pub mod app;
-pub mod state;
 pub mod renderer;
+pub mod state;
 pub mod ui;
 pub mod visuals;
 
-use std::sync::Arc;
 use state::{AudioMeters, PcmSnapshot, SessionSnapshot};
+use std::sync::Arc;
 
 /// HUD に外部データを供給するためのコンテキスト。
 ///

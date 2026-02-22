@@ -142,12 +142,11 @@ impl GlowPipeline {
             });
 
         // ブラーパイプライン
-        let blur_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("glow blur pipeline layout"),
-                bind_group_layouts: &[&blur_bind_group_layout],
-                immediate_size: 0,
-            });
+        let blur_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("glow blur pipeline layout"),
+            bind_group_layouts: &[&blur_bind_group_layout],
+            immediate_size: 0,
+        });
         let blur_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("glow blur pipeline"),
             layout: Some(&blur_pipeline_layout),
@@ -260,13 +259,7 @@ impl GlowPipeline {
     }
 
     /// ウィンドウリサイズ時にテクスチャを再生成
-    pub fn resize(
-        &mut self,
-        device: &wgpu::Device,
-        _queue: &wgpu::Queue,
-        width: u32,
-        height: u32,
-    ) {
+    pub fn resize(&mut self, device: &wgpu::Device, _queue: &wgpu::Queue, width: u32, height: u32) {
         if width == self.width && height == self.height {
             return;
         }
@@ -398,7 +391,8 @@ impl GlowPipeline {
         wgpu::BindGroup,
         wgpu::BindGroup,
     ) {
-        let tex_usage = wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
+        let tex_usage =
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING;
 
         // シーンテクスチャ（元サイズ）
         let scene_texture = device.create_texture(&wgpu::TextureDescriptor {
