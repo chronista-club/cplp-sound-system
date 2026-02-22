@@ -51,6 +51,8 @@ enum Command {
         #[command(subcommand)]
         cmd: DeviceCmd,
     },
+    /// HUD（ライブ演奏向け GUI）を起動
+    Hud,
 }
 
 /// セッションサブコマンド
@@ -364,6 +366,9 @@ fn main() -> anyhow::Result<()> {
                 rt.block_on(handle_lobby(lobby_cmd))?;
             }
         },
+        Command::Hud => {
+            cplp_hud::app::run()?;
+        }
         Command::Device { cmd: device_cmd } => match device_cmd {
             DeviceCmd::Scan => {
                 let plugins = plugin_host::scan_plugins();
