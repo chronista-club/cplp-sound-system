@@ -1,0 +1,12 @@
+[package]
+name = "cplp-plug-beat-machine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "History / Pattern - ビートマシン・リズムシーケンスモジュール"
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "cplp-plug-synthesizer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Human / Unpattern - 生演奏・即興シンセモジュール"
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

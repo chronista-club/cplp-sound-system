@@ -1,0 +1,15 @@
+[package]
+name = "cplp-flux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Flux - 全モジュールを統合・加工・出力するライブコントロールの司令塔"
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+cplp-plug-synthesizer = { path = "../cplp-plug-synthesizer" }
+cplp-plug-beat-machine = { path = "../cplp-plug-beat-machine" }
+cplp-plug-looper = { path = "../cplp-plug-looper" }
+anyhow.workspace = true
+tracing.workspace = true

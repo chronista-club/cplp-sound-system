@@ -1,0 +1,12 @@
+[package]
+name = "cplp-plug-looper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Looper - リアルタイムオーディオルーパープラグイン"
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true

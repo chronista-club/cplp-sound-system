@@ -1687,6 +1687,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "cplp-flux"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cplp-audio",
+ "cplp-core",
+ "cplp-plug-beat-machine",
+ "cplp-plug-looper",
+ "cplp-plug-synthesizer",
+ "tracing",
+]
+
+[[package]]
 name = "cplp-hud"
 version = "0.1.0"
 dependencies = [
@@ -1737,6 +1750,36 @@ dependencies = [
  "tokio",
  "tracing",
  "unison",
+]
+
+[[package]]
+name = "cplp-plug-beat-machine"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cplp-audio",
+ "cplp-core",
+ "tracing",
+]
+
+[[package]]
+name = "cplp-plug-looper"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cplp-audio",
+ "cplp-core",
+ "tracing",
+]
+
+[[package]]
+name = "cplp-plug-synthesizer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cplp-audio",
+ "cplp-core",
+ "tracing",
 ]
 
 [[package]]

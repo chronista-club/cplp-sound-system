@@ -8,6 +8,10 @@ members = [
     "crates/cplp-lobby",
     "crates/cplp-hud",
     "crates/cplp-cadence",
+    "crates/cplp-plug-synthesizer",
+    "crates/cplp-plug-beat-machine",
+    "crates/cplp-plug-looper",
+    "crates/cplp-flux",
 ]
 resolver = "2"
 
