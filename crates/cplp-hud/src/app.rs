@@ -6,7 +6,6 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::{HudAction, HudBridge, HudContext, app_status};
 use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
@@ -22,6 +21,7 @@ use crate::visuals::connection::ConnectionIndicator;
 use crate::visuals::meters::LevelMeter;
 use crate::visuals::spectrum::Spectrum;
 use crate::visuals::waveform::Waveform;
+use crate::{HudAction, HudBridge, HudContext, app_status};
 
 // ── 画面遷移アクション ──────────────────────────────
 
@@ -105,7 +105,7 @@ impl SetupScreen {
             .iter()
             .map(|p| format!("{} ({})", p.name, p.vendor))
             .collect();
-        let visible_plugins = plugin_names.len().min(6).max(2);
+        let visible_plugins = plugin_names.len().clamp(2, 6);
         let mut plugin_list = List::new(visible_plugins);
         plugin_list.set_items(plugin_names);
 
@@ -115,7 +115,7 @@ impl SetupScreen {
             .enumerate()
             .map(|(i, name)| format!("[{i}] {name}"))
             .collect();
-        let visible_midi = midi_names.len().min(4).max(1);
+        let visible_midi = midi_names.len().clamp(1, 4);
         let mut midi_list = List::new(visible_midi);
         midi_list.set_items(midi_names);
 
@@ -316,9 +316,7 @@ impl SetupScreen {
 
                 let play_resp = play_btn.event(event, l.right_primary);
 
-                if matches!(event, UiEvent::MouseUp(_, _))
-                    && play_resp == EventResponse::Consumed
-                {
+                if matches!(event, UiEvent::MouseUp(_, _)) && play_resp == EventResponse::Consumed {
                     if let Some(plugin_index) = self.plugin_list.selected() {
                         let midi_port_index = self.midi_list.selected();
                         let _ = action_tx.send(HudAction::Play {
