@@ -7,7 +7,7 @@ pub struct QuadVertex {
     pub color: [f32; 4],
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Color {
     pub r: f32,
     pub g: f32,
@@ -23,7 +23,7 @@ pub struct Rect {
     pub h: f32,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct Vec2 {
     pub x: f32,
     pub y: f32,
