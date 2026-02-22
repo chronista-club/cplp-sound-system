@@ -22,7 +22,7 @@ Player A (macOS)                    Player B (macOS)
 
 ## アーキテクチャ
 
-6 つのクレートで構成される Cargo ワークスペース:
+8 つのクレートで構成される Cargo ワークスペース:
 
 | クレート | 役割 |
 |---------|------|
@@ -32,13 +32,19 @@ Player A (macOS)                    Player B (macOS)
 | **cplp-network** | P2P ネットワーク層（Unison Protocol） |
 | **cplp-session** | セッション管理・シグナリング |
 | **cplp-lobby** | ロビーサーバー（グループ・セッション仲介） |
+| **cplp-hud** | ライブ演奏向け HUD（wgpu 直上フルスクラッチ、レベルメーター・波形・セッション状態表示） |
+| **cplp-cadence** | Cadence - AI バンドメンバー（独立バイナリ `cadence`、セッションに接続して自律演奏） |
 
 ```
 cplp-app ─→ cplp-session ─→ cplp-network ─→ unison-protocol
     │             │
     ├─→ cplp-audio ─→ clack-host / cpal
     │
+    ├─→ cplp-hud ─→ wgpu / glyphon（ライブ演奏 GUI）
+    │
     └─→ cplp-core (共通型)
+
+cadence (独立バイナリ) ─→ cplp-session / cplp-audio / cplp-network
 ```
 
 詳細: [design/01-architecture.md](design/01-architecture.md)
@@ -72,6 +78,27 @@ cplp play <PLUGIN_ID> --fx <FX_PLUGIN_ID>
 
 # プラグイン GUI を表示
 cplp play <PLUGIN_ID> --gui
+
+# 再生時間を指定（秒）
+cplp play <PLUGIN_ID> --duration 10
+```
+
+### HUD（ライブ演奏向け GUI）
+
+```bash
+# インタラクティブ HUD を起動
+# プラグイン・MIDI ポートのスキャン → GUI 上でプラグイン選択 → 演奏
+cplp hud
+```
+
+HUD はプラグイン一覧・MIDI ポート一覧を表示し、GUI 上から演奏操作が可能。
+wgpu で描画されたレベルメーター・波形ビジュアライザをリアルタイム表示する。
+
+セッション中に `--hud` フラグを付けると HUD を同時起動できる:
+
+```bash
+cplp session listen <PLUGIN_ID> --port 5000 --hud
+cplp session connect [::1]:5000 <PLUGIN_ID> --port 5001 --hud
 ```
 
 ### P2P セッション（直接接続）
@@ -97,6 +124,30 @@ cplp session lobby host --group <GROUP_ID> <PLUGIN_ID>
 cplp session lobby join --session <SESSION_ID> <PLUGIN_ID>
 ```
 
+### Cadence（AI バンドメンバー）
+
+Cadence は独立バイナリ `cadence` として動作する AI バンドメンバー。
+P2P セッションに接続し、自律的に演奏する。
+
+```bash
+# ホストとして接続を待機
+cadence listen <PLUGIN_ID> --port 5000
+
+# 指定アドレスに接続
+cadence connect [::1]:5000 <PLUGIN_ID> --port 5001
+
+# 稼働状況を表示
+cadence status
+```
+
+セッション中に `/parse` や `/ask` コマンドで Cadence に演奏指示を送信できる:
+
+```bash
+# セッション内コマンド
+/parse C4 E4 G4 120bpm        # MIDIノートを直接指定
+/ask C major chord             # 自然言語で指示
+```
+
 ### ログ出力
 
 ```bash
@@ -119,6 +170,7 @@ CPLP_LOG=production cplp play <PLUGIN_ID>  # warn 以上のみ
 | プラグインホスト | clack-host | CLAP プラグインホスティング |
 | MIDI | midir | MIDI 入力 |
 | ネットワーク | Unison Protocol (QUIC) | P2P 通信 |
+| GPU レンダリング | wgpu + glyphon | HUD 描画（レベルメーター・波形・テキスト） |
 | 非同期ランタイム | tokio | ネットワーク・制御の非同期処理 |
 | ロビーサーバー | axum + SurrealDB | セッション仲介 |
 
