@@ -1,6 +1,10 @@
+#[allow(dead_code)]
 mod midi_types;
+#[allow(dead_code)]
 mod parser;
+#[allow(dead_code)]
 mod router;
+#[allow(dead_code)]
 mod sequencer;
 mod session;
 
