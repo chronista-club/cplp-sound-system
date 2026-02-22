@@ -1,3 +1,4 @@
+pub mod glow;
 pub mod line;
 pub mod pipeline;
 pub mod primitives;
@@ -7,6 +8,7 @@ use std::sync::Arc;
 
 use winit::window::Window;
 
+use self::glow::GlowPipeline;
 use self::line::LinePipeline;
 use self::pipeline::GpuContext;
 use self::primitives::{Color, QuadPipeline, Rect, Vec2};
@@ -18,6 +20,8 @@ pub struct Renderer {
     lines: LinePipeline,
     text: TextEngine,
     text_entries: Vec<TextEntry>,
+    glow: GlowPipeline,
+    glow_enabled: bool,
 }
 
 impl Renderer {
@@ -26,17 +30,32 @@ impl Renderer {
         let quads = QuadPipeline::new(&gpu.device, gpu.config.format);
         let lines = LinePipeline::new(&gpu.device, gpu.config.format);
         let text = TextEngine::new(&gpu.device, &gpu.queue, gpu.config.format);
+        let glow = GlowPipeline::new(
+            &gpu.device,
+            &gpu.queue,
+            gpu.config.format,
+            gpu.size.width,
+            gpu.size.height,
+        );
         Ok(Self {
             gpu,
             quads,
             lines,
             text,
             text_entries: Vec::new(),
+            glow,
+            glow_enabled: true,
         })
     }
 
     pub fn resize(&mut self, size: winit::dpi::PhysicalSize<u32>) {
         self.gpu.resize(size);
+        self.glow
+            .resize(&self.gpu.device, &self.gpu.queue, size.width, size.height);
+    }
+
+    pub fn set_glow_enabled(&mut self, enabled: bool) {
+        self.glow_enabled = enabled;
     }
 
     pub fn gpu(&self) -> &GpuContext {
@@ -89,11 +108,19 @@ impl Renderer {
             .device
             .create_command_encoder(&Default::default());
 
-        // Render pass: quads → lines → text
+        // グロー有効時: 中間テクスチャに描画 → ブラー → コンポジット
+        // グロー無効時: 直接 surface に描画
+        let target_view = if self.glow_enabled {
+            self.glow.scene_view()
+        } else {
+            &view
+        };
+
+        // Render pass: quads -> lines -> text
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: target_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
@@ -113,6 +140,11 @@ impl Renderer {
             self.lines
                 .flush(&self.gpu.device, &self.gpu.queue, &mut pass);
             self.text.render(&mut pass);
+        }
+
+        // グロー有効時: ブラー + コンポジットを適用
+        if self.glow_enabled {
+            self.glow.apply(&mut encoder, &view);
         }
 
         self.gpu.queue.submit(std::iter::once(encoder.finish()));
