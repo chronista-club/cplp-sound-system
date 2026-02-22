@@ -1,0 +1,19 @@
+[package]
+name = "cplp-hud"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "ライブ演奏向け HUD（wgpu 直上フルスクラッチ）"
+
+[dependencies]
+cplp-core.workspace = true
+wgpu.workspace = true
+winit.workspace = true
+glyphon.workspace = true
+atomic_float.workspace = true
+triple_buffer.workspace = true
+ringbuf.workspace = true
+bytemuck.workspace = true
+pollster.workspace = true
+tracing.workspace = true
+anyhow.workspace = true

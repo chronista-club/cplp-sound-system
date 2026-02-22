@@ -6,6 +6,7 @@ members = [
     "crates/cplp-session",
     "crates/cplp-app",
     "crates/cplp-lobby",
+    "crates/cplp-hud",
 ]
 resolver = "2"
 
@@ -45,8 +46,16 @@ clack-finder = { git = "https://github.com/prokopyl/clack" }
 # P2P 通信
 unison = { git = "https://github.com/chronista-club/unison.git" }
 
+# GUI / レンダリング
+wgpu = "28"
+glyphon = "0.10"
+
 # Lock-free データ構造
+atomic_float = "1"
+triple_buffer = "8"
 ringbuf = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
 
 # MIDI
 midir = "0.10"
