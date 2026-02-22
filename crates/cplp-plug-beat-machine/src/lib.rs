@@ -10,7 +10,10 @@ pub struct BeatMachine {
 
 impl BeatMachine {
     pub fn new(bpm: f32, sample_rate: f32) -> Self {
-        Self { bpm, _sample_rate: sample_rate }
+        Self {
+            bpm,
+            _sample_rate: sample_rate,
+        }
     }
 
     pub fn bpm(&self) -> f32 {

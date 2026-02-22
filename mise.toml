@@ -1,0 +1,15 @@
+[tasks.app]
+description = "HUD を起動（release build + debug ログ出力）"
+run = """
+cargo build --release --bin cplp --quiet
+CPLP_LOG=dev ./target/release/cplp hud --log-file /tmp/cplp-hud.log
+"""
+
+[tasks."app:bg"]
+description = "HUD をバックグラウンド起動（JSON ログ監視用）"
+run = """
+cargo build --release --bin cplp --quiet
+CPLP_LOG=dev ./target/release/cplp hud --log-file /tmp/cplp-hud.log &
+echo "PID: $!"
+echo "Log: /tmp/cplp-hud.log (JSON Lines)"
+"""

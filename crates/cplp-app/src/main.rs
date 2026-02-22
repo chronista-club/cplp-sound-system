@@ -859,6 +859,10 @@ fn run_interactive_hud() -> anyhow::Result<()> {
     let live_data: Arc<std::sync::Mutex<Option<HudLiveData>>> =
         Arc::new(std::sync::Mutex::new(None));
 
+    let (flux_input, flux_output) =
+        triple_buffer::triple_buffer(&cplp_flux::FluxSnapshot::default());
+    let flux_input = Arc::new(std::sync::Mutex::new(flux_input));
+
     let bridge = HudBridge {
         plugins: plugin_entries,
         midi_ports: midi_ports.clone(),
@@ -866,12 +870,14 @@ fn run_interactive_hud() -> anyhow::Result<()> {
         status: Arc::clone(&status),
         status_message: Arc::clone(&status_message),
         live_data: Arc::clone(&live_data),
+        flux: flux_output,
     };
 
     // ── 3. バックグラウンドスレッド ──
     let bg_status = Arc::clone(&status);
     let bg_status_message = Arc::clone(&status_message);
     let bg_live_data = Arc::clone(&live_data);
+    let bg_flux_input = Arc::clone(&flux_input);
 
     std::thread::spawn(move || {
         // 現在のエンジン・MIDI 接続を保持（Stop 時に解放）
@@ -988,6 +994,15 @@ fn run_interactive_hud() -> anyhow::Result<()> {
                     if let Ok(mut msg) = bg_status_message.lock() {
                         *msg = format!("Playing: {}", plugin_info.name);
                     }
+
+                    // Flux snapshot 更新
+                    if let Ok(mut fi) = bg_flux_input.lock() {
+                        fi.write(cplp_flux::FluxSnapshot {
+                            active_plugin: Some(plugin_info.name.clone()),
+                            synth_state: cplp_flux::ModuleState::Playing,
+                            ..Default::default()
+                        });
+                    }
                 }
                 HudAction::Stop => {
                     if let Some(mut engine) = current_engine.take() {
@@ -1001,6 +1016,10 @@ fn run_interactive_hud() -> anyhow::Result<()> {
                     bg_status.store(app_status::READY, Relaxed);
                     if let Ok(mut msg) = bg_status_message.lock() {
                         msg.clear();
+                    }
+                    // Flux snapshot リセット
+                    if let Ok(mut fi) = bg_flux_input.lock() {
+                        fi.write(cplp_flux::FluxSnapshot::default());
                     }
                 }
             }

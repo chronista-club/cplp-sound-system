@@ -67,6 +67,8 @@ pub struct HudBridge {
     pub status_message: Arc<Mutex<String>>,
     /// App → HUD: ライブデータ（プラグインロード後にセット）
     pub live_data: Arc<Mutex<Option<HudLiveData>>>,
+    /// App → HUD: Flux ステータス（TripleBuffer で lock-free 共有）
+    pub flux: triple_buffer::Output<cplp_flux::FluxSnapshot>,
 }
 
 /// インタラクティブモードで HUD を起動

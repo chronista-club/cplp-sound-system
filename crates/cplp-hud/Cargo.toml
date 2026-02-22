@@ -18,6 +18,7 @@ bytemuck.workspace = true
 pollster.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
+cplp-flux = { path = "../cplp-flux" }
 
 [[example]]
 name = "window"

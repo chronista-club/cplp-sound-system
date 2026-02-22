@@ -522,6 +522,7 @@ pub struct LiveScreen {
     remote_waveform: Waveform,
     local_spectrum: Spectrum,
     mix_slider: Slider,
+    flux_snapshot: cplp_flux::FluxSnapshot,
 }
 
 impl Default for LiveScreen {
@@ -563,7 +564,12 @@ impl LiveScreen {
                 }, // シアン系
             ),
             mix_slider: Slider::new("Mix Balance"),
+            flux_snapshot: cplp_flux::FluxSnapshot::default(),
         }
+    }
+
+    pub fn update_flux(&mut self, snapshot: &cplp_flux::FluxSnapshot) {
+        self.flux_snapshot = snapshot.clone();
     }
 
     /// ウィンドウサイズに応じたレスポンシブレイアウト
@@ -697,14 +703,52 @@ impl LiveScreen {
         // スペクトラム
         self.local_spectrum.draw(renderer, l.local_spectrum);
 
-        // 下部: ミックススライダー + ステータステキスト
+        // 下部: ミックススライダー + Flux ステータス
         self.mix_slider.draw(renderer, l.mix_slider);
+        self.draw_flux_status(renderer, l.pad, l.bottom_y + theme::BUTTON_H);
+    }
+
+    fn draw_flux_status(&self, renderer: &mut Renderer, x: f32, y: f32) {
+        let s = &self.flux_snapshot;
+        let state_char = |st: cplp_flux::ModuleState| match st {
+            cplp_flux::ModuleState::Off => ("OFF", [0.4, 0.4, 0.4, 1.0]),
+            cplp_flux::ModuleState::Ready => ("RDY", [0.9, 0.7, 0.2, 1.0]),
+            cplp_flux::ModuleState::Playing => ("PLAY", [0.2, 0.9, 0.4, 1.0]),
+        };
+        let looper_label = match s.looper_state {
+            cplp_flux::LooperState::Empty => ("---", [0.4, 0.4, 0.4, 1.0]),
+            cplp_flux::LooperState::Recording => ("REC", [0.9, 0.2, 0.2, 1.0]),
+            cplp_flux::LooperState::Playing => ("PLAY", [0.2, 0.9, 0.4, 1.0]),
+            cplp_flux::LooperState::Stopped => ("STOP", [0.9, 0.7, 0.2, 1.0]),
+        };
+
+        let plugin_name = s.active_plugin.as_deref().unwrap_or("(none)");
+        let (synth_label, synth_color) = state_char(s.synth_state);
+        let (beat_label, beat_color) = state_char(s.beat_machine_state);
+        let (loop_label, loop_color) = looper_label;
+
+        // Flux ステータス行
+        let line = format!(
+            "Flux  BPM:{:.0}  Plugin:{}  Synth:[{}]  Beat:[{}]  Loop:[{}]",
+            s.bpm, plugin_name, synth_label, beat_label, loop_label,
+        );
+
+        // 各モジュールのステータスカラーの中で最も活発なものを行全体の色にする
+        let line_color = if s.synth_state == cplp_flux::ModuleState::Playing
+            || s.beat_machine_state == cplp_flux::ModuleState::Playing
+        {
+            [0.2, 0.9, 0.4, 1.0]
+        } else {
+            [0.6, 0.6, 0.6, 1.0]
+        };
+        let _ = (synth_color, beat_color, loop_color); // 将来の個別カラー描画用
+
         renderer.text(TextEntry {
-            text: "Session Active".into(),
-            x: l.pad,
-            y: l.bottom_y + theme::BUTTON_H,
+            text: line,
+            x,
+            y,
             size: theme::TEXT_SM,
-            color: [0.2, 0.9, 0.4, 1.0],
+            color: line_color,
         });
     }
 
@@ -738,6 +782,46 @@ struct App {
     frame_count: u64,
     ctx: Option<HudContext>,
     bridge: Option<HudBridge>,
+    fps: FpsCounter,
+}
+
+/// FPS カウンター（1秒ごとに更新）
+struct FpsCounter {
+    last_instant: std::time::Instant,
+    frames_in_second: u32,
+    display_fps: u32,
+}
+
+impl FpsCounter {
+    fn new() -> Self {
+        Self {
+            last_instant: std::time::Instant::now(),
+            frames_in_second: 0,
+            display_fps: 0,
+        }
+    }
+
+    fn tick(&mut self) {
+        self.frames_in_second += 1;
+        let elapsed = self.last_instant.elapsed();
+        if elapsed >= std::time::Duration::from_secs(1) {
+            self.display_fps = self.frames_in_second;
+            self.frames_in_second = 0;
+            self.last_instant = std::time::Instant::now();
+        }
+    }
+
+    fn draw(&self, renderer: &mut Renderer, w: f32) {
+        let text = format!("{} fps", self.display_fps);
+        let s = theme::SCALE;
+        renderer.text(TextEntry {
+            text,
+            x: w - 70.0 * s,
+            y: 6.0 * s,
+            size: theme::TEXT_SM,
+            color: [0.4, 0.4, 0.4, 1.0],
+        });
+    }
 }
 
 impl App {
@@ -755,6 +839,7 @@ impl App {
             frame_count: 0,
             ctx,
             bridge,
+            fps: FpsCounter::new(),
         }
     }
 
@@ -854,7 +939,11 @@ impl ApplicationHandler for App {
                     }
                     Screen::Live(s) => {
                         // bridge モード: live_data から meters/PCM を読み取る
-                        if let Some(ref bridge) = self.bridge {
+                        if let Some(ref mut bridge) = self.bridge {
+                            // Flux snapshot 更新
+                            let flux_snap = bridge.flux.read().clone();
+                            s.update_flux(&flux_snap);
+
                             if let Ok(mut guard) = bridge.live_data.lock() {
                                 if let Some(ref mut live) = *guard {
                                     let pcm = live.local_pcm.read().clone();
@@ -883,6 +972,8 @@ impl ApplicationHandler for App {
                 };
 
                 self.frame_count += 1;
+                self.fps.tick();
+                self.fps.draw(renderer, w);
                 self.renderer.as_mut().unwrap().render_frame();
 
                 // render_frame 後に画面遷移（次フレームから反映）

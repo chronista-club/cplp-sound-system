@@ -11,7 +11,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 /// `CPLP_LOG` プリセットをフィルタ文字列に変換
 fn preset_to_filter(preset: &str) -> &str {
     match preset {
-        "dev" => "debug,cplp_audio=trace",
+        "dev" => "debug,cplp_audio=trace,cosmic_text=warn,naga=warn,wgpu_core=warn,wgpu_hal=warn,winit=warn",
         "audio" => "info,cplp_audio=trace,cplp_audio::engine=trace",
         "network" => "info,cplp_network=debug,cplp_session=debug",
         "production" => "warn",
@@ -80,7 +80,8 @@ pub fn init_logging(log_file: Option<&str>) -> Vec<WorkerGuard> {
         let file_layer = tracing_subscriber::fmt::layer()
             .with_writer(non_blocking_file)
             .with_target(true)
-            .with_ansi(false);
+            .with_ansi(false)
+            .json();
 
         registry.with(file_layer).init();
     } else {
@@ -96,7 +97,11 @@ mod tests {
 
     #[test]
     fn test_preset_dev() {
-        assert_eq!(preset_to_filter("dev"), "debug,cplp_audio=trace");
+        let filter = preset_to_filter("dev");
+        assert!(filter.starts_with("debug,cplp_audio=trace"));
+        assert!(filter.contains("cosmic_text=warn"));
+        assert!(filter.contains("naga=warn"));
+        assert!(filter.contains("wgpu_core=warn"));
     }
 
     #[test]
@@ -135,10 +140,8 @@ mod tests {
 
     #[test]
     fn test_resolve_filter_cplp_log_takes_priority() {
-        assert_eq!(
-            resolve_filter_from(Some("dev"), Some("warn")),
-            "debug,cplp_audio=trace"
-        );
+        let filter = resolve_filter_from(Some("dev"), Some("warn"));
+        assert!(filter.starts_with("debug,cplp_audio=trace"));
     }
 
     #[test]

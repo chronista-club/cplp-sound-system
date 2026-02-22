@@ -222,7 +222,7 @@ impl P2pManager {
             .await;
 
         // 接続イベントを購読（spawn_listen 前に取得）
-        let mut conn_rx = server.subscribe_connection_events().await;
+        let mut conn_rx = server.subscribe_connection_events();
 
         // サーバー起動（spawn_listen は self を consume する）
         let listen_str = format!("[::]:{}", self.listen_addr.port());
@@ -238,7 +238,7 @@ impl P2pManager {
         // バックグラウンドタスク: 接続イベントを P2pEvent に転送
         let event_tx = self.event_tx.clone();
         tokio::spawn(async move {
-            while let Some(event) = conn_rx.recv().await {
+            while let Ok(event) = conn_rx.recv().await {
                 match event {
                     ConnectionEvent::Connected { remote_addr, .. } => {
                         let _ = event_tx
@@ -281,7 +281,7 @@ impl P2pManager {
 
         tracing::info!("Connecting to peer: {} at {}", peer_id, peer_addr);
 
-        let mut client = ProtocolClient::new_default()
+        let client = ProtocolClient::new_default()
             .map_err(|e| CplpError::Network(format!("Client creation failed: {}", e)))?;
 
         let addr_str = peer_addr.to_string();
