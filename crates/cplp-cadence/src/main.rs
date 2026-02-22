@@ -1,5 +1,7 @@
 mod midi_types;
 mod parser;
+mod router;
+mod sequencer;
 
 use clap::{Parser, Subcommand};
 
