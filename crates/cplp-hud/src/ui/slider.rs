@@ -1,35 +1,16 @@
 use super::event::{EventResponse, MouseButton, UiEvent};
+use super::theme;
 use super::widget::Widget;
 use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
 
-/// HUD 風デザイン定数
-const BG_COLOR: Color = Color {
-    r: 0.12,
-    g: 0.12,
-    b: 0.15,
-    a: 0.9,
-};
-const ACTIVE_COLOR: Color = Color {
-    r: 0.2,
-    g: 0.6,
-    b: 0.9,
-    a: 0.9,
-};
 const KNOB_COLOR: Color = Color {
     r: 0.85,
     g: 0.85,
     b: 0.85,
     a: 1.0,
 };
-const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
-const TEXT_SIZE: f32 = 14.0;
-const SLIDER_WIDTH: f32 = 200.0;
-const SLIDER_HEIGHT: f32 = 28.0;
-const KNOB_W: f32 = 4.0;
-const KNOB_H: f32 = 20.0;
-const TRACK_H: f32 = 6.0;
 
 pub struct Slider {
     value: f32,
@@ -47,8 +28,8 @@ impl Slider {
             hovered: false,
             label: label.to_string(),
             size: Vec2 {
-                x: SLIDER_WIDTH,
-                y: SLIDER_HEIGHT,
+                x: theme::SLIDER_W,
+                y: theme::SLIDER_H,
             },
         }
     }
@@ -74,15 +55,15 @@ impl Widget for Slider {
 
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
         // 背景トラック
-        let track_y = rect.y + (rect.h - TRACK_H) / 2.0;
+        let track_y = rect.y + (rect.h - theme::TRACK_H) / 2.0;
         renderer.rect(
             Rect {
                 x: rect.x,
                 y: track_y,
                 w: rect.w,
-                h: TRACK_H,
+                h: theme::TRACK_H,
             },
-            BG_COLOR,
+            theme::BG,
         );
 
         // フィル部分（value 分の幅）
@@ -92,20 +73,20 @@ impl Widget for Slider {
                 x: rect.x,
                 y: track_y,
                 w: fill_w,
-                h: TRACK_H,
+                h: theme::TRACK_H,
             },
-            ACTIVE_COLOR,
+            theme::ACTIVE,
         );
 
         // ノブ（value 位置に小さい白矩形）
-        let knob_x = rect.x + fill_w - KNOB_W / 2.0;
-        let knob_y = rect.y + (rect.h - KNOB_H) / 2.0;
+        let knob_x = rect.x + fill_w - theme::KNOB_W / 2.0;
+        let knob_y = rect.y + (rect.h - theme::KNOB_H) / 2.0;
         renderer.rect(
             Rect {
                 x: knob_x,
                 y: knob_y,
-                w: KNOB_W,
-                h: KNOB_H,
+                w: theme::KNOB_W,
+                h: theme::KNOB_H,
             },
             KNOB_COLOR,
         );
@@ -115,19 +96,19 @@ impl Widget for Slider {
             text: self.label.clone(),
             x: rect.x,
             y: rect.y,
-            size: TEXT_SIZE,
-            color: TEXT_COLOR,
+            size: theme::TEXT_SM,
+            color: theme::TEXT_COLOR,
         });
 
         // 値テキスト（右端）
         let pct = format!("{:.0}%", self.value * 100.0);
-        let pct_w = pct.len() as f32 * 8.4;
+        let pct_w = pct.len() as f32 * theme::CHAR_W;
         renderer.text(TextEntry {
             text: pct,
             x: rect.x + rect.w - pct_w,
             y: rect.y,
-            size: TEXT_SIZE,
-            color: TEXT_COLOR,
+            size: theme::TEXT_SM,
+            color: theme::TEXT_COLOR,
         });
     }
 
@@ -203,7 +184,6 @@ mod tests {
             h: 28.0,
         };
 
-        // ドラッグ開始
         slider.event(
             &UiEvent::MouseDown(Vec2 { x: 50.0, y: 14.0 }, MouseButton::Left),
             rect,
@@ -211,11 +191,9 @@ mod tests {
         assert!(slider.dragging);
         assert!((slider.value() - 0.25).abs() < 0.01);
 
-        // ドラッグ中
         slider.event(&UiEvent::MouseMove(Vec2 { x: 150.0, y: 14.0 }), rect);
         assert!((slider.value() - 0.75).abs() < 0.01);
 
-        // リリース
         slider.event(
             &UiEvent::MouseUp(Vec2 { x: 150.0, y: 14.0 }, MouseButton::Left),
             rect,

@@ -10,7 +10,7 @@ use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_hud::HudContext;
+use cplp_hud::{HudAction, HudBridge, HudContext, HudLiveData, PluginEntry, app_status};
 use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
 use cplp_network::control::{CommandMode, ControlEvent};
 use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
@@ -390,7 +390,7 @@ fn main() -> anyhow::Result<()> {
             }
         },
         Command::Hud => {
-            cplp_hud::app::run()?;
+            run_interactive_hud()?;
         }
         Command::Device { cmd: device_cmd } => match device_cmd {
             DeviceCmd::Scan => {
@@ -830,6 +830,190 @@ fn run_session_with_hud(
     cplp_hud::app::run_with_context(ctx)?;
     engine.stop();
     Ok(())
+}
+
+/// インタラクティブ HUD を起動
+///
+/// 1. プラグイン/MIDI ポートをスキャン
+/// 2. HudBridge を構築
+/// 3. バックグラウンドスレッドで HudAction を処理
+/// 4. メインスレッドで run_interactive() を実行（winit 要件）
+fn run_interactive_hud() -> anyhow::Result<()> {
+    // ── 1. スキャン ──
+    let plugins = plugin_host::scan_plugins();
+    let midi_ports = midi_input::list_midi_ports().unwrap_or_default();
+
+    let plugin_entries: Vec<PluginEntry> = plugins
+        .iter()
+        .map(|p| PluginEntry {
+            name: p.name.clone(),
+            id: p.id.clone(),
+            vendor: p.vendor.clone(),
+        })
+        .collect();
+
+    // ── 2. HudBridge 構築 ──
+    let (action_tx, action_rx) = std::sync::mpsc::channel::<HudAction>();
+    let status = Arc::new(std::sync::atomic::AtomicU8::new(app_status::READY));
+    let status_message = Arc::new(std::sync::Mutex::new(String::new()));
+    let live_data: Arc<std::sync::Mutex<Option<HudLiveData>>> =
+        Arc::new(std::sync::Mutex::new(None));
+
+    let bridge = HudBridge {
+        plugins: plugin_entries,
+        midi_ports: midi_ports.clone(),
+        action_tx,
+        status: Arc::clone(&status),
+        status_message: Arc::clone(&status_message),
+        live_data: Arc::clone(&live_data),
+    };
+
+    // ── 3. バックグラウンドスレッド ──
+    let bg_status = Arc::clone(&status);
+    let bg_status_message = Arc::clone(&status_message);
+    let bg_live_data = Arc::clone(&live_data);
+
+    std::thread::spawn(move || {
+        // 現在のエンジン・MIDI 接続を保持（Stop 時に解放）
+        let mut current_engine: Option<AudioEngine> = None;
+        let mut _current_midi: Option<MidiInputManager> = None;
+        let mut _current_synth_handle: Option<plugin_host::PluginHandle> = None;
+
+        while let Ok(action) = action_rx.recv() {
+            match action {
+                HudAction::Play {
+                    plugin_index,
+                    midi_port_index,
+                } => {
+                    // 既存のエンジンを停止
+                    if let Some(mut engine) = current_engine.take() {
+                        engine.stop();
+                    }
+                    _current_midi = None;
+                    _current_synth_handle = None;
+                    if let Ok(mut ld) = bg_live_data.lock() {
+                        *ld = None;
+                    }
+
+                    bg_status.store(app_status::LOADING, Relaxed);
+                    if let Ok(mut msg) = bg_status_message.lock() {
+                        *msg = "Loading plugin".into();
+                    }
+
+                    // プラグイン検索
+                    let Some(plugin_info) = plugins.get(plugin_index) else {
+                        bg_status.store(app_status::ERROR, Relaxed);
+                        if let Ok(mut msg) = bg_status_message.lock() {
+                            *msg = format!("Plugin index {} out of range", plugin_index);
+                        }
+                        continue;
+                    };
+
+                    tracing::info!(
+                        "Interactive: loading {} ({})",
+                        plugin_info.name,
+                        plugin_info.id
+                    );
+
+                    // meters + PCM writer
+                    let meters = Arc::new(AudioMeters::default());
+                    let (pcm_input, pcm_output) =
+                        triple_buffer::triple_buffer(&PcmSnapshot::default());
+                    let mut pcm_writer = PcmWriter::new(pcm_input);
+
+                    // プラグインロード
+                    let config = cplp_core::config::AudioConfig::default();
+                    let load_result = plugin_host::load_plugin(
+                        plugin_info,
+                        config.sample_rate as f64,
+                        config.buffer_size,
+                        config.buffer_size,
+                        config.channels as usize,
+                    );
+
+                    let (mut synth_processor, note_ctrl, synth_handle) = match load_result {
+                        Ok(r) => r,
+                        Err(e) => {
+                            bg_status.store(app_status::ERROR, Relaxed);
+                            if let Ok(mut msg) = bg_status_message.lock() {
+                                *msg = format!("Plugin load failed: {e}");
+                            }
+                            continue;
+                        }
+                    };
+
+                    // AudioEngine 起動
+                    let mut engine = AudioEngine::new(config);
+                    let m = Arc::clone(&meters);
+                    let start_result = engine.start(move |buf: &mut [f32]| {
+                        synth_processor.process(buf);
+                        write_meters(&m, buf);
+                        pcm_writer.push(buf);
+                    });
+
+                    if let Err(e) = start_result {
+                        bg_status.store(app_status::ERROR, Relaxed);
+                        if let Ok(mut msg) = bg_status_message.lock() {
+                            *msg = format!("Audio engine failed: {e}");
+                        }
+                        continue;
+                    }
+
+                    // MIDI 接続
+                    let midi_conn = if let Some(port_idx) = midi_port_index {
+                        match MidiInputManager::connect(port_idx, note_ctrl) {
+                            Ok(conn) => Some(conn),
+                            Err(e) => {
+                                tracing::warn!("MIDI connect failed: {e}");
+                                None
+                            }
+                        }
+                    } else {
+                        None
+                    };
+
+                    // live_data をセット
+                    if let Ok(mut ld) = bg_live_data.lock() {
+                        *ld = Some(HudLiveData {
+                            meters,
+                            local_pcm: pcm_output,
+                        });
+                    }
+
+                    current_engine = Some(engine);
+                    _current_midi = midi_conn;
+                    _current_synth_handle = Some(synth_handle);
+
+                    bg_status.store(app_status::PLAYING, Relaxed);
+                    if let Ok(mut msg) = bg_status_message.lock() {
+                        *msg = format!("Playing: {}", plugin_info.name);
+                    }
+                }
+                HudAction::Stop => {
+                    if let Some(mut engine) = current_engine.take() {
+                        engine.stop();
+                    }
+                    _current_midi = None;
+                    _current_synth_handle = None;
+                    if let Ok(mut ld) = bg_live_data.lock() {
+                        *ld = None;
+                    }
+                    bg_status.store(app_status::READY, Relaxed);
+                    if let Ok(mut msg) = bg_status_message.lock() {
+                        msg.clear();
+                    }
+                }
+            }
+        }
+
+        // チャネル切断 = HUD ウィンドウ閉じ → クリーンアップ
+        if let Some(mut engine) = current_engine.take() {
+            engine.stop();
+        }
+    });
+
+    // ── 4. メインスレッドで HUD 起動 ──
+    cplp_hud::run_interactive(bridge)
 }
 
 /// stdin の1行をパースして (CommandMode, text) を返す

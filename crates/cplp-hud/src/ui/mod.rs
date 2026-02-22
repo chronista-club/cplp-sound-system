@@ -4,4 +4,5 @@ pub mod layout;
 pub mod list;
 pub mod slider;
 pub mod text_input;
+pub mod theme;
 pub mod widget;

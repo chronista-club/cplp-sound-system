@@ -1,6 +1,7 @@
 use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect};
 use crate::renderer::text::TextEntry;
+use crate::ui::theme;
 
 /// レベル値 (0.0–1.0) を dB に変換
 pub fn level_to_db(level: f32) -> f32 {
@@ -102,7 +103,7 @@ impl LevelMeter {
                 Rect {
                     x: peak_x,
                     y: rect.y,
-                    w: 2.0,
+                    w: 2.0 * theme::SCALE,
                     h: rect.h,
                 },
                 Color {
@@ -117,9 +118,9 @@ impl LevelMeter {
         // 4. ラベルテキスト（左端）
         renderer.text(TextEntry {
             text: self.label.clone(),
-            x: rect.x + 4.0,
-            y: rect.y + 2.0,
-            size: 14.0,
+            x: rect.x + 4.0 * theme::SCALE,
+            y: rect.y + 2.0 * theme::SCALE,
+            size: theme::TEXT_SM,
             color: [1.0, 1.0, 1.0, 1.0],
         });
 
@@ -127,9 +128,9 @@ impl LevelMeter {
         let db = level_to_db(self.level);
         renderer.text(TextEntry {
             text: format!("{:.1} dB", db),
-            x: rect.x + rect.w - 70.0,
-            y: rect.y + 2.0,
-            size: 14.0,
+            x: rect.x + rect.w - 70.0 * theme::SCALE,
+            y: rect.y + 2.0 * theme::SCALE,
+            size: theme::TEXT_SM,
             color: [0.8, 0.8, 0.8, 1.0],
         });
     }

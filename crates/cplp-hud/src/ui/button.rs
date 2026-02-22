@@ -1,54 +1,31 @@
 use super::event::{EventResponse, MouseButton, UiEvent};
+use super::theme;
 use super::widget::Widget;
 use crate::renderer::Renderer;
-use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::primitives::{Rect, Vec2};
 use crate::renderer::text::TextEntry;
-
-/// HUD 風デザイン定数
-const BG_COLOR: Color = Color {
-    r: 0.12,
-    g: 0.12,
-    b: 0.15,
-    a: 0.9,
-};
-const HOVER_COLOR: Color = Color {
-    r: 0.2,
-    g: 0.2,
-    b: 0.25,
-    a: 0.9,
-};
-const ACTIVE_COLOR: Color = Color {
-    r: 0.2,
-    g: 0.6,
-    b: 0.9,
-    a: 0.9,
-};
-const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
-const TEXT_SIZE: f32 = 14.0;
-const BUTTON_HEIGHT: f32 = 36.0;
-/// 1文字あたりの推定幅（モノスペース）
-const CHAR_WIDTH: f32 = 8.4;
-const PADDING_H: f32 = 16.0;
 
 pub struct Button {
     label: String,
     pub(crate) hovered: bool,
     pub(crate) pressed: bool,
+    enabled: bool,
     on_click: Option<Box<dyn FnMut()>>,
     size: Vec2,
 }
 
 impl Button {
     pub fn new(label: &str) -> Self {
-        let w = label.len() as f32 * CHAR_WIDTH + PADDING_H * 2.0;
+        let w = label.len() as f32 * theme::CHAR_W + theme::PAD_BTN_H * 2.0;
         Self {
             label: label.to_string(),
             hovered: false,
             pressed: false,
+            enabled: true,
             on_click: None,
             size: Vec2 {
                 x: w,
-                y: BUTTON_HEIGHT,
+                y: theme::BUTTON_H,
             },
         }
     }
@@ -56,6 +33,18 @@ impl Button {
     pub fn on_click(mut self, f: impl FnMut() + 'static) -> Self {
         self.on_click = Some(Box::new(f));
         self
+    }
+
+    pub fn set_enabled(&mut self, enabled: bool) {
+        self.enabled = enabled;
+        if !enabled {
+            self.hovered = false;
+            self.pressed = false;
+        }
+    }
+
+    pub fn enabled(&self) -> bool {
+        self.enabled
     }
 }
 
@@ -65,30 +54,33 @@ impl Widget for Button {
     }
 
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
-        // 背景色: 状態に応じて切り替え
-        let bg = if self.pressed {
-            ACTIVE_COLOR
+        let (bg, text_color) = if !self.enabled {
+            (theme::DISABLED_BG, theme::TEXT_DISABLED)
+        } else if self.pressed {
+            (theme::ACTIVE, theme::TEXT_COLOR)
         } else if self.hovered {
-            HOVER_COLOR
+            (theme::HOVER, theme::TEXT_COLOR)
         } else {
-            BG_COLOR
+            (theme::BG, theme::TEXT_COLOR)
         };
         renderer.rect(rect, bg);
 
-        // テキストを中央に配置
-        let text_w = self.label.len() as f32 * CHAR_WIDTH;
+        let text_w = self.label.len() as f32 * theme::CHAR_W;
         let tx = rect.x + (rect.w - text_w) / 2.0;
-        let ty = rect.y + (rect.h - TEXT_SIZE) / 2.0;
+        let ty = rect.y + (rect.h - theme::TEXT_SM) / 2.0;
         renderer.text(TextEntry {
             text: self.label.clone(),
             x: tx,
             y: ty,
-            size: TEXT_SIZE,
-            color: TEXT_COLOR,
+            size: theme::TEXT_SM,
+            color: text_color,
         });
     }
 
     fn event(&mut self, event: &UiEvent, rect: Rect) -> EventResponse {
+        if !self.enabled {
+            return EventResponse::Ignored;
+        }
         match event {
             UiEvent::MouseMove(pos) => {
                 self.hovered = rect.contains(*pos);
@@ -155,7 +147,6 @@ mod tests {
             h: 36.0,
         };
 
-        // MouseDown → pressed
         let r = btn.event(
             &UiEvent::MouseDown(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left),
             rect,
@@ -163,7 +154,6 @@ mod tests {
         assert_eq!(r, EventResponse::Consumed);
         assert!(btn.pressed);
 
-        // MouseUp → コールバック発火
         let r = btn.event(
             &UiEvent::MouseUp(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left),
             rect,
@@ -171,6 +161,39 @@ mod tests {
         assert_eq!(r, EventResponse::Consumed);
         assert!(clicked.get());
         assert!(!btn.pressed);
+    }
+
+    #[test]
+    fn button_disabled_ignores_click() {
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let clicked = Rc::new(Cell::new(false));
+        let clicked_clone = clicked.clone();
+        let mut btn = Button::new("OK").on_click(move || {
+            clicked_clone.set(true);
+        });
+        btn.set_enabled(false);
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 100.0,
+            h: 36.0,
+        };
+
+        let r = btn.event(
+            &UiEvent::MouseDown(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left),
+            rect,
+        );
+        assert_eq!(r, EventResponse::Ignored);
+        assert!(!btn.pressed);
+
+        let r = btn.event(
+            &UiEvent::MouseUp(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left),
+            rect,
+        );
+        assert_eq!(r, EventResponse::Ignored);
+        assert!(!clicked.get());
     }
 
     #[test]

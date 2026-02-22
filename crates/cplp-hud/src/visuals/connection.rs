@@ -2,6 +2,7 @@ use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect};
 use crate::renderer::text::TextEntry;
 use crate::state::SessionSnapshot;
+use crate::ui::theme;
 
 /// 接続状態インジケーター
 ///
@@ -31,9 +32,9 @@ impl ConnectionIndicator {
 
     /// 指定された矩形領域に接続状態を描画する
     pub fn draw(&self, renderer: &mut Renderer, rect: Rect) {
-        let padding = 8.0;
-        let dot_size = 8.0;
-        let font_size = 14.0;
+        let padding = theme::PAD_LEFT;
+        let dot_size = 8.0 * theme::SCALE;
+        let font_size = theme::TEXT_SM;
 
         // 背景矩形
         renderer.rect(
@@ -91,7 +92,7 @@ impl ConnectionIndicator {
 
         // ジッタテキスト（右端寄せ）
         let jitter_text = format!("±{:.1}ms", self.snapshot.jitter_ms);
-        let jitter_width = jitter_text.len() as f32 * font_size * 0.6;
+        let jitter_width = jitter_text.len() as f32 * theme::CHAR_W;
         renderer.text(TextEntry {
             text: jitter_text,
             x: rect.x + rect.w - padding - jitter_width,
@@ -102,7 +103,7 @@ impl ConnectionIndicator {
 
         // レイテンシテキスト（ジッタの左）
         let latency_text = format!("{:.1}ms", self.snapshot.latency_ms);
-        let latency_width = latency_text.len() as f32 * font_size * 0.6;
+        let latency_width = latency_text.len() as f32 * theme::CHAR_W;
         let lat_color = latency_color(self.snapshot.latency_ms);
         renderer.text(TextEntry {
             text: latency_text,

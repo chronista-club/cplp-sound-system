@@ -1,36 +1,22 @@
 use super::event::{EventResponse, Key, MouseButton, UiEvent};
+use super::theme;
 use super::widget::Widget;
 use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
 
-/// HUD 風デザイン定数
-const BG_COLOR: Color = Color {
-    r: 0.12,
-    g: 0.12,
-    b: 0.15,
-    a: 0.9,
-};
 const FOCUSED_BG: Color = Color {
     r: 0.15,
     g: 0.15,
     b: 0.2,
     a: 0.9,
 };
-const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
-const PLACEHOLDER_COLOR: [f32; 4] = [0.45, 0.45, 0.5, 1.0];
 const CURSOR_COLOR: Color = Color {
     r: 0.85,
     g: 0.85,
     b: 0.85,
     a: 1.0,
 };
-const TEXT_SIZE: f32 = 14.0;
-const INPUT_WIDTH: f32 = 300.0;
-const INPUT_HEIGHT: f32 = 32.0;
-const PADDING_LEFT: f32 = 8.0;
-const CHAR_WIDTH: f32 = 8.4;
-const CURSOR_W: f32 = 2.0;
 
 pub struct TextInput {
     text: String,
@@ -48,8 +34,8 @@ impl TextInput {
             focused: false,
             placeholder: placeholder.to_string(),
             size: Vec2 {
-                x: INPUT_WIDTH,
-                y: INPUT_HEIGHT,
+                x: theme::HALF_W,
+                y: theme::INPUT_H,
             },
         }
     }
@@ -79,41 +65,37 @@ impl Widget for TextInput {
     }
 
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
-        // 背景（focused で色変更）
-        let bg = if self.focused { FOCUSED_BG } else { BG_COLOR };
+        let bg = if self.focused { FOCUSED_BG } else { theme::BG };
         renderer.rect(rect, bg);
 
-        let ty = rect.y + (rect.h - TEXT_SIZE) / 2.0;
+        let ty = rect.y + (rect.h - theme::TEXT_SM) / 2.0;
 
         if self.text.is_empty() && !self.focused {
-            // プレースホルダー表示
             renderer.text(TextEntry {
                 text: self.placeholder.clone(),
-                x: rect.x + PADDING_LEFT,
+                x: rect.x + theme::PAD_LEFT,
                 y: ty,
-                size: TEXT_SIZE,
-                color: PLACEHOLDER_COLOR,
+                size: theme::TEXT_SM,
+                color: theme::PLACEHOLDER,
             });
         } else {
-            // テキスト描画
             renderer.text(TextEntry {
                 text: self.text.clone(),
-                x: rect.x + PADDING_LEFT,
+                x: rect.x + theme::PAD_LEFT,
                 y: ty,
-                size: TEXT_SIZE,
-                color: TEXT_COLOR,
+                size: theme::TEXT_SM,
+                color: theme::TEXT_COLOR,
             });
         }
 
-        // カーソル描画（focused 時のみ）
         if self.focused {
-            let cursor_x = rect.x + PADDING_LEFT + self.cursor as f32 * CHAR_WIDTH;
+            let cursor_x = rect.x + theme::PAD_LEFT + self.cursor as f32 * theme::CHAR_W;
             renderer.rect(
                 Rect {
                     x: cursor_x,
                     y: ty,
-                    w: CURSOR_W,
-                    h: TEXT_SIZE,
+                    w: theme::CURSOR_W,
+                    h: theme::TEXT_SM,
                 },
                 CURSOR_COLOR,
             );
@@ -199,18 +181,15 @@ mod tests {
             h: 32.0,
         };
 
-        // "abc" を入力
         input.event(&UiEvent::KeyDown(Key::Char('a')), rect);
         input.event(&UiEvent::KeyDown(Key::Char('b')), rect);
         input.event(&UiEvent::KeyDown(Key::Char('c')), rect);
         assert_eq!(input.cursor, 3);
 
-        // 左に2つ移動
         input.event(&UiEvent::KeyDown(Key::Left), rect);
         input.event(&UiEvent::KeyDown(Key::Left), rect);
         assert_eq!(input.cursor, 1);
 
-        // カーソル位置に挿入
         input.event(&UiEvent::KeyDown(Key::Char('x')), rect);
         assert_eq!(input.text(), "axbc");
     }
@@ -226,14 +205,12 @@ mod tests {
         };
         assert!(!input.focused);
 
-        // rect 内クリックでフォーカス
         input.event(
             &UiEvent::MouseDown(Vec2 { x: 50.0, y: 16.0 }, MouseButton::Left),
             rect,
         );
         assert!(input.focused);
 
-        // Enter で確定（フォーカス解除）
         input.event(&UiEvent::KeyDown(Key::Enter), rect);
         assert!(!input.focused);
     }

@@ -1,32 +1,9 @@
 use super::event::{EventResponse, Key, MouseButton, UiEvent};
+use super::theme;
 use super::widget::Widget;
 use crate::renderer::Renderer;
-use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::primitives::{Rect, Vec2};
 use crate::renderer::text::TextEntry;
-
-/// HUD 風デザイン定数
-const BG_COLOR: Color = Color {
-    r: 0.12,
-    g: 0.12,
-    b: 0.15,
-    a: 0.9,
-};
-const HOVER_COLOR: Color = Color {
-    r: 0.2,
-    g: 0.2,
-    b: 0.25,
-    a: 0.9,
-};
-const ACTIVE_COLOR: Color = Color {
-    r: 0.2,
-    g: 0.6,
-    b: 0.9,
-    a: 0.9,
-};
-const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
-const TEXT_SIZE: f32 = 14.0;
-const ITEM_HEIGHT: f32 = 30.0;
-const PADDING_LEFT: f32 = 8.0;
 
 pub struct List {
     items: Vec<String>,
@@ -44,7 +21,7 @@ impl List {
             selected: None,
             scroll_offset: 0,
             visible_count,
-            item_height: ITEM_HEIGHT,
+            item_height: theme::ITEM_H,
             hovered_index: None,
         }
     }
@@ -90,7 +67,7 @@ impl Widget for List {
 
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
         // 背景
-        renderer.rect(rect, BG_COLOR);
+        renderer.rect(rect, theme::BG);
 
         // visible_count 分のアイテムを描画
         for i in 0..self.visible_count {
@@ -108,19 +85,19 @@ impl Widget for List {
 
             // 選択・ホバー背景
             if self.selected == Some(idx) {
-                renderer.rect(item_rect, ACTIVE_COLOR);
+                renderer.rect(item_rect, theme::ACTIVE);
             } else if self.hovered_index == Some(idx) {
-                renderer.rect(item_rect, HOVER_COLOR);
+                renderer.rect(item_rect, theme::HOVER);
             }
 
             // テキスト描画
-            let ty = item_rect.y + (self.item_height - TEXT_SIZE) / 2.0;
+            let ty = item_rect.y + (self.item_height - theme::TEXT_SM) / 2.0;
             renderer.text(TextEntry {
                 text: self.items[idx].clone(),
-                x: item_rect.x + PADDING_LEFT,
+                x: item_rect.x + theme::PAD_LEFT,
                 y: ty,
-                size: TEXT_SIZE,
-                color: TEXT_COLOR,
+                size: theme::TEXT_SM,
+                color: theme::TEXT_COLOR,
             });
         }
     }
@@ -188,15 +165,22 @@ mod tests {
     fn list_selection() {
         let mut list = List::new(5);
         list.set_items(vec!["A".into(), "B".into(), "C".into()]);
+        let h = 5.0 * theme::ITEM_H;
         let rect = Rect {
             x: 0.0,
             y: 0.0,
             w: 200.0,
-            h: 150.0,
+            h,
         };
-        // クリックで2番目を選択 (item_height = 30.0)
+        // クリックで2番目を選択（item_height の中間付近）
         list.event(
-            &UiEvent::MouseDown(Vec2 { x: 50.0, y: 35.0 }, MouseButton::Left),
+            &UiEvent::MouseDown(
+                Vec2 {
+                    x: 50.0,
+                    y: theme::ITEM_H + 5.0,
+                },
+                MouseButton::Left,
+            ),
             rect,
         );
         assert_eq!(list.selected(), Some(1));
@@ -210,7 +194,7 @@ mod tests {
             x: 0.0,
             y: 0.0,
             w: 200.0,
-            h: 150.0,
+            h: 5.0 * theme::ITEM_H,
         };
 
         // Down で初期選択
@@ -234,18 +218,31 @@ mod tests {
     fn list_hover_tracking() {
         let mut list = List::new(5);
         list.set_items(vec!["A".into(), "B".into(), "C".into()]);
+        let h = 5.0 * theme::ITEM_H;
         let rect = Rect {
             x: 0.0,
             y: 0.0,
             w: 200.0,
-            h: 150.0,
+            h,
         };
 
-        list.event(&UiEvent::MouseMove(Vec2 { x: 50.0, y: 65.0 }), rect);
+        list.event(
+            &UiEvent::MouseMove(Vec2 {
+                x: 50.0,
+                y: theme::ITEM_H * 2.0 + 5.0,
+            }),
+            rect,
+        );
         assert_eq!(list.hovered_index, Some(2));
 
         // 範囲外
-        list.event(&UiEvent::MouseMove(Vec2 { x: 50.0, y: 200.0 }), rect);
+        list.event(
+            &UiEvent::MouseMove(Vec2 {
+                x: 50.0,
+                y: h + 10.0,
+            }),
+            rect,
+        );
         assert_eq!(list.hovered_index, None);
     }
 
@@ -257,7 +254,7 @@ mod tests {
             x: 0.0,
             y: 0.0,
             w: 200.0,
-            h: 60.0,
+            h: 2.0 * theme::ITEM_H,
         };
 
         assert_eq!(list.scroll_offset, 0);
