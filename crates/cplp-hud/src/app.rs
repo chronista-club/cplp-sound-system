@@ -8,10 +8,380 @@ use winit::window::{Window, WindowId};
 use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
 use crate::renderer::Renderer;
+use crate::state::SessionSnapshot;
+use crate::ui::button::Button;
+use crate::ui::event::{from_window_event, EventResponse, UiEvent};
+use crate::ui::list::List;
+use crate::ui::slider::Slider;
+use crate::ui::text_input::TextInput;
+use crate::ui::widget::Widget;
+use crate::visuals::connection::ConnectionIndicator;
+use crate::visuals::meters::LevelMeter;
+use crate::visuals::waveform::Waveform;
+
+// ── 画面遷移アクション ──────────────────────────────
+
+pub enum ScreenAction {
+    None,
+    GoToConnecting,
+    GoToLive,
+    GoToSetup,
+}
+
+// ── Screen 列挙型 ────────────────────────────────────
+
+pub enum Screen {
+    Setup(SetupScreen),
+    Connecting(ConnectingScreen),
+    Live(LiveScreen),
+}
+
+// ── レイアウト定数 ───────────────────────────────────
+
+const PADDING: f32 = 20.0;
+const HALF_W: f32 = 300.0;
+const CONTENT_Y: f32 = 70.0;
+
+// ── SetupScreen ──────────────────────────────────────
+
+pub struct SetupScreen {
+    plugin_list: List,
+    midi_list: List,
+    session_input: TextInput,
+    create_btn: Button,
+    join_btn: Button,
+}
+
+impl SetupScreen {
+    pub fn new() -> Self {
+        let mut plugin_list = List::new(4);
+        plugin_list.set_items(vec![
+            "Diva".into(),
+            "Surge XT".into(),
+            "Vital".into(),
+            "ZynAddSubFX".into(),
+        ]);
+
+        let mut midi_list = List::new(2);
+        midi_list.set_items(vec![
+            "MIDI Keyboard 1".into(),
+            "USB MIDI".into(),
+        ]);
+
+        Self {
+            plugin_list,
+            midi_list,
+            session_input: TextInput::new("Session ID..."),
+            create_btn: Button::new("Create Session"),
+            join_btn: Button::new("Join Session"),
+        }
+    }
+
+    /// 各ウィジェットの配置 Rect を返すヘルパー
+    fn layout() -> SetupLayout {
+        let list_w = HALF_W - PADDING * 2.0;
+        let right_x = HALF_W + PADDING;
+        let midi_y = CONTENT_Y + 160.0;
+
+        SetupLayout {
+            plugin_list: Rect { x: PADDING, y: CONTENT_Y + 24.0, w: list_w, h: 120.0 },
+            midi_list: Rect { x: PADDING, y: midi_y + 24.0, w: list_w, h: 60.0 },
+            session_input: Rect { x: right_x, y: CONTENT_Y + 24.0, w: list_w, h: 32.0 },
+            create_btn: Rect { x: right_x, y: CONTENT_Y + 68.0, w: list_w, h: 36.0 },
+            join_btn: Rect { x: right_x, y: CONTENT_Y + 116.0, w: list_w, h: 36.0 },
+            midi_label_y: midi_y,
+            right_x,
+        }
+    }
+
+    pub fn draw(&self, renderer: &mut Renderer) {
+        let l = Self::layout();
+
+        // タイトル
+        renderer.text(TextEntry {
+            text: "cplp".into(),
+            x: PADDING,
+            y: PADDING,
+            size: 32.0,
+            color: [0.2, 0.6, 0.9, 1.0],
+        });
+
+        // ── 左半分: Plugins ──
+        renderer.text(TextEntry {
+            text: "Plugins".into(),
+            x: PADDING,
+            y: CONTENT_Y,
+            size: 16.0,
+            color: [0.7, 0.7, 0.7, 1.0],
+        });
+        self.plugin_list.draw(renderer, l.plugin_list);
+
+        // ── 左半分: MIDI Devices ──
+        renderer.text(TextEntry {
+            text: "MIDI Devices".into(),
+            x: PADDING,
+            y: l.midi_label_y,
+            size: 16.0,
+            color: [0.7, 0.7, 0.7, 1.0],
+        });
+        self.midi_list.draw(renderer, l.midi_list);
+
+        // ── 右半分: Session ──
+        renderer.text(TextEntry {
+            text: "Session".into(),
+            x: l.right_x,
+            y: CONTENT_Y,
+            size: 16.0,
+            color: [0.7, 0.7, 0.7, 1.0],
+        });
+        self.session_input.draw(renderer, l.session_input);
+        self.create_btn.draw(renderer, l.create_btn);
+        self.join_btn.draw(renderer, l.join_btn);
+    }
+
+    pub fn event(&mut self, event: &UiEvent) -> ScreenAction {
+        let l = Self::layout();
+
+        // 全ウィジェットにイベント委譲
+        self.plugin_list.event(event, l.plugin_list);
+        self.midi_list.event(event, l.midi_list);
+        self.session_input.event(event, l.session_input);
+
+        let create_resp = self.create_btn.event(event, l.create_btn);
+        let join_resp = self.join_btn.event(event, l.join_btn);
+
+        // MouseUp で Consumed = ボタンクリック完了 → 画面遷移
+        if matches!(event, UiEvent::MouseUp(_, _)) {
+            if create_resp == EventResponse::Consumed || join_resp == EventResponse::Consumed {
+                return ScreenAction::GoToConnecting;
+            }
+        }
+
+        ScreenAction::None
+    }
+}
+
+/// SetupScreen のレイアウト情報
+struct SetupLayout {
+    plugin_list: Rect,
+    midi_list: Rect,
+    session_input: Rect,
+    create_btn: Rect,
+    join_btn: Rect,
+    midi_label_y: f32,
+    right_x: f32,
+}
+
+// ── ConnectingScreen ─────────────────────────────────
+
+pub struct ConnectingScreen {
+    session_id: String,
+    cancel_btn: Button,
+    elapsed_frames: u64,
+}
+
+impl ConnectingScreen {
+    pub fn new(session_id: &str) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            cancel_btn: Button::new("Cancel"),
+            elapsed_frames: 0,
+        }
+    }
+
+    pub fn update(&mut self) {
+        self.elapsed_frames += 1;
+    }
+
+    pub fn should_transition(&self) -> bool {
+        self.elapsed_frames >= 180
+    }
+
+    fn cancel_btn_rect() -> Rect {
+        Rect { x: 260.0, y: 280.0, w: 120.0, h: 36.0 }
+    }
+
+    pub fn draw(&self, renderer: &mut Renderer) {
+        // "Connecting" + 点滅ドット
+        let dots = if self.elapsed_frames % 60 < 30 { "..." } else { "" };
+        renderer.text(TextEntry {
+            text: format!("Connecting{}", dots),
+            x: 240.0,
+            y: 200.0,
+            size: 24.0,
+            color: [0.2, 0.6, 0.9, 1.0],
+        });
+
+        // セッション ID
+        renderer.text(TextEntry {
+            text: format!("Session: {}", self.session_id),
+            x: 240.0,
+            y: 240.0,
+            size: 14.0,
+            color: [0.6, 0.6, 0.6, 1.0],
+        });
+
+        // Cancel ボタン
+        self.cancel_btn.draw(renderer, Self::cancel_btn_rect());
+    }
+
+    pub fn event(&mut self, event: &UiEvent) -> ScreenAction {
+        let resp = self.cancel_btn.event(event, Self::cancel_btn_rect());
+
+        if matches!(event, UiEvent::MouseUp(_, _)) && resp == EventResponse::Consumed {
+            return ScreenAction::GoToSetup;
+        }
+
+        ScreenAction::None
+    }
+}
+
+// ── LiveScreen ───────────────────────────────────────
+
+pub struct LiveScreen {
+    connection: ConnectionIndicator,
+    local_meter: LevelMeter,
+    remote_meter: LevelMeter,
+    local_waveform: Waveform,
+    remote_waveform: Waveform,
+    mix_slider: Slider,
+}
+
+impl LiveScreen {
+    pub fn new() -> Self {
+        Self {
+            connection: ConnectionIndicator::new(),
+            local_meter: LevelMeter::new("You"),
+            remote_meter: LevelMeter::new("Peer"),
+            local_waveform: Waveform::new(
+                "You",
+                Color { r: 0.0, g: 0.9, b: 0.9, a: 1.0 }, // シアン
+            ),
+            remote_waveform: Waveform::new(
+                "Peer",
+                Color { r: 0.9, g: 0.2, b: 0.9, a: 1.0 }, // マゼンタ
+            ),
+            mix_slider: Slider::new("Mix Balance"),
+        }
+    }
+
+    fn layout() -> LiveLayout {
+        let pad = 10.0;
+        let w = 640.0;
+        let half_w = (w - pad * 3.0) / 2.0;
+        let section_y = 50.0;
+        let right_x = half_w + pad * 2.0;
+        let bottom_y = section_y + 220.0;
+
+        LiveLayout {
+            connection: Rect { x: pad, y: pad, w: w - pad * 2.0, h: 30.0 },
+            local_meter: Rect { x: pad, y: section_y + 24.0, w: half_w, h: 24.0 },
+            local_waveform: Rect { x: pad, y: section_y + 56.0, w: half_w, h: 150.0 },
+            remote_meter: Rect { x: right_x, y: section_y + 24.0, w: half_w, h: 24.0 },
+            remote_waveform: Rect { x: right_x, y: section_y + 56.0, w: half_w, h: 150.0 },
+            mix_slider: Rect { x: pad, y: bottom_y, w: w - pad * 2.0, h: 28.0 },
+            section_y,
+            right_x,
+            pad,
+            bottom_y,
+        }
+    }
+
+    pub fn update(&mut self, frame_count: u64) {
+        // ダミーレベルデータ
+        let local_level = (frame_count as f32 * 0.03).sin().abs() * 0.8 + 0.1;
+        let remote_level = (frame_count as f32 * 0.025 + 1.0).sin().abs() * 0.7 + 0.15;
+        self.local_meter.update(local_level);
+        self.remote_meter.update(remote_level);
+
+        // ダミーウェーブフォームデータ
+        let local_samples: Vec<f32> = (0..256)
+            .map(|i| (i as f32 * 0.05 + frame_count as f32 * 0.02).sin() * 0.6)
+            .collect();
+        let remote_samples: Vec<f32> = (0..256)
+            .map(|i| (i as f32 * 0.07 + frame_count as f32 * 0.015).sin() * 0.5)
+            .collect();
+        self.local_waveform.update(&local_samples);
+        self.remote_waveform.update(&remote_samples);
+
+        // ダミー接続情報
+        self.connection.update(&SessionSnapshot {
+            peer_name: "Player B".into(),
+            connected: true,
+            latency_ms: 8.5,
+            jitter_ms: 1.2,
+            ..Default::default()
+        });
+    }
+
+    pub fn draw(&self, renderer: &mut Renderer) {
+        let l = Self::layout();
+
+        // 上部: 接続情報バー
+        self.connection.draw(renderer, l.connection);
+
+        // 中央左: "You" + メーター + ウェーブフォーム
+        renderer.text(TextEntry {
+            text: "You".into(),
+            x: l.pad,
+            y: l.section_y,
+            size: 16.0,
+            color: [0.0, 0.9, 0.9, 1.0],
+        });
+        self.local_meter.draw(renderer, l.local_meter);
+        self.local_waveform.draw(renderer, l.local_waveform);
+
+        // 中央右: "Peer" + メーター + ウェーブフォーム
+        renderer.text(TextEntry {
+            text: "Peer".into(),
+            x: l.right_x,
+            y: l.section_y,
+            size: 16.0,
+            color: [0.9, 0.2, 0.9, 1.0],
+        });
+        self.remote_meter.draw(renderer, l.remote_meter);
+        self.remote_waveform.draw(renderer, l.remote_waveform);
+
+        // 下部: ミックススライダー + ステータステキスト
+        self.mix_slider.draw(renderer, l.mix_slider);
+        renderer.text(TextEntry {
+            text: "Session Active".into(),
+            x: l.pad,
+            y: l.bottom_y + 36.0,
+            size: 14.0,
+            color: [0.2, 0.9, 0.4, 1.0],
+        });
+    }
+
+    pub fn event(&mut self, event: &UiEvent) -> ScreenAction {
+        let l = Self::layout();
+        self.mix_slider.event(event, l.mix_slider);
+        ScreenAction::None
+    }
+}
+
+/// LiveScreen のレイアウト情報
+struct LiveLayout {
+    connection: Rect,
+    local_meter: Rect,
+    local_waveform: Rect,
+    remote_meter: Rect,
+    remote_waveform: Rect,
+    mix_slider: Rect,
+    section_y: f32,
+    right_x: f32,
+    pad: f32,
+    bottom_y: f32,
+}
+
+// ── App 構造体 ───────────────────────────────────────
 
 struct App {
     window: Option<Arc<Window>>,
     renderer: Option<Renderer>,
+    screen: Screen,
+    cursor_pos: Vec2,
+    frame_count: u64,
 }
 
 impl App {
@@ -19,6 +389,25 @@ impl App {
         Self {
             window: None,
             renderer: None,
+            screen: Screen::Setup(SetupScreen::new()),
+            cursor_pos: Vec2 { x: 0.0, y: 0.0 },
+            frame_count: 0,
+        }
+    }
+
+    /// 画面遷移を適用
+    fn apply_action(&mut self, action: ScreenAction) {
+        match action {
+            ScreenAction::GoToConnecting => {
+                self.screen = Screen::Connecting(ConnectingScreen::new("DEMO-SESSION"));
+            }
+            ScreenAction::GoToLive => {
+                self.screen = Screen::Live(LiveScreen::new());
+            }
+            ScreenAction::GoToSetup => {
+                self.screen = Screen::Setup(SetupScreen::new());
+            }
+            ScreenAction::None => {}
         }
     }
 }
@@ -49,56 +438,65 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
-                let Some(renderer) = &mut self.renderer else {
+                if self.renderer.is_none() {
                     return;
+                }
+                let renderer = self.renderer.as_mut().unwrap();
+
+                // グロー設定: Live 画面のみ有効
+                renderer.set_glow_enabled(matches!(self.screen, Screen::Live(_)));
+
+                // 画面ごとの更新・描画
+                let action = match &mut self.screen {
+                    Screen::Setup(s) => {
+                        s.draw(renderer);
+                        ScreenAction::None // イベント側で遷移を処理
+                    }
+                    Screen::Connecting(s) => {
+                        s.update();
+                        s.draw(renderer);
+                        if s.should_transition() {
+                            ScreenAction::GoToLive
+                        } else {
+                            ScreenAction::None
+                        }
+                    }
+                    Screen::Live(s) => {
+                        s.update(self.frame_count);
+                        s.draw(renderer);
+                        ScreenAction::None
+                    }
                 };
 
-                // Red rectangle
-                renderer.rect(
-                    Rect {
-                        x: 50.0,
-                        y: 50.0,
-                        w: 200.0,
-                        h: 100.0,
-                    },
-                    Color {
-                        r: 0.9,
-                        g: 0.2,
-                        b: 0.2,
-                        a: 1.0,
-                    },
-                );
+                self.frame_count += 1;
+                self.renderer.as_mut().unwrap().render_frame();
 
-                // Green sine wave polyline
-                let points: Vec<Vec2> = (0..200)
-                    .map(|i| {
-                        let x = 50.0 + i as f32 * 2.7;
-                        let y = 250.0 + (i as f32 * 0.05).sin() * 40.0;
-                        Vec2 { x, y }
-                    })
-                    .collect();
-                renderer.polyline(
-                    &points,
-                    Color {
-                        r: 0.2,
-                        g: 0.9,
-                        b: 0.4,
-                        a: 1.0,
-                    },
-                );
-
-                // White text
-                renderer.text(TextEntry {
-                    text: "cplp — Renderer OK".into(),
-                    x: 50.0,
-                    y: 350.0,
-                    size: 24.0,
-                    color: [1.0, 1.0, 1.0, 1.0],
-                });
-
-                renderer.render_frame();
+                // render_frame 後に画面遷移（次フレームから反映）
+                self.apply_action(action);
             }
-            _ => {}
+            other => {
+                if let Some(ui_event) = from_window_event(&other) {
+                    // CursorMoved は cursor_pos も更新
+                    if let UiEvent::MouseMove(pos) = &ui_event {
+                        self.cursor_pos = *pos;
+                    }
+
+                    // MouseDown/MouseUp の座標を cursor_pos で補完
+                    let ui_event = match ui_event {
+                        UiEvent::MouseDown(_, btn) => UiEvent::MouseDown(self.cursor_pos, btn),
+                        UiEvent::MouseUp(_, btn) => UiEvent::MouseUp(self.cursor_pos, btn),
+                        e => e,
+                    };
+
+                    let action = match &mut self.screen {
+                        Screen::Setup(s) => s.event(&ui_event),
+                        Screen::Connecting(s) => s.event(&ui_event),
+                        Screen::Live(s) => s.event(&ui_event),
+                    };
+
+                    self.apply_action(action);
+                }
+            }
         }
     }
 
