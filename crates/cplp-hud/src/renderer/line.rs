@@ -13,6 +13,8 @@ pub struct LinePipeline {
     viewport_bind_group: wgpu::BindGroup,
     vertices: Vec<LineVertex>,
     viewport_size: [f32; 2],
+    prepared_vertex_buffer: Option<wgpu::Buffer>,
+    prepared_vertex_count: u32,
 }
 
 impl LinePipeline {
@@ -109,6 +111,8 @@ impl LinePipeline {
             viewport_bind_group,
             vertices: Vec::new(),
             viewport_size: [640.0, 480.0],
+            prepared_vertex_buffer: None,
+            prepared_vertex_count: 0,
         }
     }
 
@@ -133,14 +137,10 @@ impl LinePipeline {
         }
     }
 
-    /// GPU に送信して描画
-    pub fn flush<'a>(
-        &'a mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        pass: &mut wgpu::RenderPass<'a>,
-    ) {
+    pub fn prepare(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
         if self.vertices.is_empty() {
+            self.prepared_vertex_buffer = None;
+            self.prepared_vertex_count = 0;
             return;
         }
 
@@ -150,18 +150,26 @@ impl LinePipeline {
             bytemuck::cast_slice(&self.viewport_size),
         );
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("line vertex buffer"),
-            contents: bytemuck::cast_slice(&self.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        self.prepared_vertex_buffer = Some(device.create_buffer_init(
+            &wgpu::util::BufferInitDescriptor {
+                label: Some("line vertex buffer"),
+                contents: bytemuck::cast_slice(&self.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            },
+        ));
 
-        let vertex_count = self.vertices.len() as u32;
+        self.prepared_vertex_count = self.vertices.len() as u32;
         self.vertices.clear();
+    }
+
+    pub fn render<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>) {
+        let Some(vb) = &self.prepared_vertex_buffer else {
+            return;
+        };
 
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
-        pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        pass.draw(0..vertex_count, 0..1);
+        pass.set_vertex_buffer(0, vb.slice(..));
+        pass.draw(0..self.prepared_vertex_count, 0..1);
     }
 }

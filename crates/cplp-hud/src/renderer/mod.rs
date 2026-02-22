@@ -83,8 +83,9 @@ impl Renderer {
         self.quads.set_viewport(w as f32, h as f32);
         self.quads.prepare(&self.gpu.device, &self.gpu.queue);
 
-        // Prepare lines viewport
+        // Prepare lines
         self.lines.set_viewport(w as f32, h as f32);
+        self.lines.prepare(&self.gpu.device, &self.gpu.queue);
 
         // Prepare text
         let entries: Vec<_> = self.text_entries.drain(..).collect();
@@ -100,7 +101,10 @@ impl Renderer {
                     .configure(&self.gpu.device, &self.gpu.config);
                 return;
             }
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!("Surface error: {:?}", e);
+                return;
+            }
         };
         let view = output.texture.create_view(&Default::default());
         let mut encoder = self
@@ -137,8 +141,7 @@ impl Renderer {
             });
 
             self.quads.render(&mut pass);
-            self.lines
-                .flush(&self.gpu.device, &self.gpu.queue, &mut pass);
+            self.lines.render(&mut pass);
             self.text.render(&mut pass);
         }
 

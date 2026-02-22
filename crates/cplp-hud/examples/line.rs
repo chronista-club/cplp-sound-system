@@ -79,6 +79,8 @@ impl ApplicationHandler for LineApp {
 
                 lines.polyline(&points, [0.0, 1.0, 0.4, 1.0]); // 緑
 
+                lines.prepare(&gpu.device, &gpu.queue);
+
                 let output = match gpu.surface.get_current_texture() {
                     Ok(t) => t,
                     Err(wgpu::SurfaceError::Lost) => {
@@ -107,7 +109,7 @@ impl ApplicationHandler for LineApp {
                         })],
                         ..Default::default()
                     });
-                    lines.flush(&gpu.device, &gpu.queue, &mut pass);
+                    lines.render(&mut pass);
                 }
                 gpu.queue.submit(std::iter::once(encoder.finish()));
                 output.present();

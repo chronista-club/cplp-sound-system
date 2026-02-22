@@ -297,92 +297,18 @@ fn main() -> anyhow::Result<()> {
                 println!("ピアの接続を待機中 (port {port})...");
                 println!("(Ctrl+C で停止)");
 
-                if hud {
-                    let meters = meters.unwrap();
-                    let (mut session_in, session_out) =
-                        triple_buffer::triple_buffer(&SessionSnapshot::default());
+                let app_config = AppConfig {
+                    audio: AudioConfig::default(),
+                    network: NetworkConfig {
+                        listen_port: port,
+                        ..Default::default()
+                    },
+                };
 
-                    // tokio runtime を背景スレッドで起動
-                    std::thread::spawn(move || {
-                        let rt = tokio::runtime::Runtime::new().unwrap();
-                        rt.block_on(async {
-                            let app_config = AppConfig {
-                                audio: AudioConfig::default(),
-                                network: NetworkConfig {
-                                    listen_port: port,
-                                    ..Default::default()
-                                },
-                            };
-                            let mut session = SessionManager::new(app_config);
-                            let mut state_rx = session.state_rx();
-
-                            tokio::select! {
-                                result = session.host() => {
-                                    match result {
-                                        Ok(_streamer) => {
-                                            tracing::info!("セッション開始（HUD モード）");
-                                            // セッション状態を TripleBuffer に転写
-                                            loop {
-                                                tokio::select! {
-                                                    Ok(()) = state_rx.changed() => {
-                                                        let state = state_rx.borrow_and_update();
-                                                        session_in.write(session_state_to_snapshot(&state));
-                                                    }
-                                                    _ = tokio::signal::ctrl_c() => break,
-                                                }
-                                            }
-                                        }
-                                        Err(e) => tracing::error!("セッションエラー: {}", e),
-                                    }
-                                }
-                                _ = tokio::signal::ctrl_c() => {
-                                    tracing::info!("停止中...");
-                                }
-                            }
-
-                            session.shutdown().await.ok();
-                        });
-                    });
-
-                    // main thread で HUD を起動（ウィンドウ閉じで戻る）
-                    println!("HUD を起動中...");
-                    cplp_hud::app::run_with_context(HudContext {
-                        meters,
-                        session: session_out,
-                    })?;
-
-                    engine.stop();
+                if let Some(meters) = meters {
+                    run_session_with_hud(&mut engine, meters, app_config, SessionMode::Host)?;
                 } else {
-                    let rt = tokio::runtime::Runtime::new()?;
-                    rt.block_on(async {
-                        let app_config = AppConfig {
-                            audio: AudioConfig::default(),
-                            network: NetworkConfig {
-                                listen_port: port,
-                                ..Default::default()
-                            },
-                        };
-                        let mut session = SessionManager::new(app_config);
-
-                        tokio::select! {
-                            result = session.host() => {
-                                match result {
-                                    Ok(_streamer) => {
-                                        println!("セッション開始！");
-                                        tokio::signal::ctrl_c().await.ok();
-                                    }
-                                    Err(e) => tracing::error!("セッションエラー: {}", e),
-                                }
-                            }
-                            _ = tokio::signal::ctrl_c() => {
-                                println!("\n停止中...");
-                            }
-                        }
-
-                        session.shutdown().await.ok();
-                    });
-
-                    engine.stop();
+                    run_session_blocking(&mut engine, app_config, SessionMode::Host)?;
                 }
             }
             SessionCmd::Connect {
@@ -401,89 +327,18 @@ fn main() -> anyhow::Result<()> {
                 println!("{} に接続中...", peer_addr);
                 println!("(Ctrl+C で停止)");
 
-                if hud {
-                    let meters = meters.unwrap();
-                    let (mut session_in, session_out) =
-                        triple_buffer::triple_buffer(&SessionSnapshot::default());
+                let app_config = AppConfig {
+                    audio: AudioConfig::default(),
+                    network: NetworkConfig {
+                        listen_port: port,
+                        ..Default::default()
+                    },
+                };
 
-                    std::thread::spawn(move || {
-                        let rt = tokio::runtime::Runtime::new().unwrap();
-                        rt.block_on(async {
-                            let app_config = AppConfig {
-                                audio: AudioConfig::default(),
-                                network: NetworkConfig {
-                                    listen_port: port,
-                                    ..Default::default()
-                                },
-                            };
-                            let mut session = SessionManager::new(app_config);
-                            let mut state_rx = session.state_rx();
-
-                            tokio::select! {
-                                result = session.join(peer_addr) => {
-                                    match result {
-                                        Ok(_streamer) => {
-                                            tracing::info!("セッション開始（HUD モード）");
-                                            loop {
-                                                tokio::select! {
-                                                    Ok(()) = state_rx.changed() => {
-                                                        let state = state_rx.borrow_and_update();
-                                                        session_in.write(session_state_to_snapshot(&state));
-                                                    }
-                                                    _ = tokio::signal::ctrl_c() => break,
-                                                }
-                                            }
-                                        }
-                                        Err(e) => tracing::error!("セッションエラー: {}", e),
-                                    }
-                                }
-                                _ = tokio::signal::ctrl_c() => {
-                                    tracing::info!("停止中...");
-                                }
-                            }
-
-                            session.shutdown().await.ok();
-                        });
-                    });
-
-                    println!("HUD を起動中...");
-                    cplp_hud::app::run_with_context(HudContext {
-                        meters,
-                        session: session_out,
-                    })?;
-
-                    engine.stop();
+                if let Some(meters) = meters {
+                    run_session_with_hud(&mut engine, meters, app_config, SessionMode::Join(peer_addr))?;
                 } else {
-                    let rt = tokio::runtime::Runtime::new()?;
-                    rt.block_on(async {
-                        let app_config = AppConfig {
-                            audio: AudioConfig::default(),
-                            network: NetworkConfig {
-                                listen_port: port,
-                                ..Default::default()
-                            },
-                        };
-                        let mut session = SessionManager::new(app_config);
-
-                        tokio::select! {
-                            result = session.join(peer_addr) => {
-                                match result {
-                                    Ok(_streamer) => {
-                                        println!("セッション開始！");
-                                        tokio::signal::ctrl_c().await.ok();
-                                    }
-                                    Err(e) => tracing::error!("セッションエラー: {}", e),
-                                }
-                            }
-                            _ = tokio::signal::ctrl_c() => {
-                                println!("\n停止中...");
-                            }
-                        }
-
-                        session.shutdown().await.ok();
-                    });
-
-                    engine.stop();
+                    run_session_blocking(&mut engine, app_config, SessionMode::Join(peer_addr))?;
                 }
             }
             SessionCmd::Lobby { cmd: lobby_cmd } => {
@@ -859,6 +714,90 @@ fn session_state_to_snapshot(state: &SessionState) -> SessionSnapshot {
         },
         _ => SessionSnapshot::default(),
     }
+}
+
+/// セッション接続モード
+enum SessionMode {
+    /// ホスト（ピアの接続を待機）
+    Host,
+    /// ゲスト（指定アドレスに接続）
+    Join(SocketAddr),
+}
+
+/// HUD 付きでセッションを実行（メインスレッドで winit、バックグラウンドで tokio）
+fn run_session_with_hud(
+    engine: &mut AudioEngine,
+    meters: Arc<AudioMeters>,
+    app_config: AppConfig,
+    mode: SessionMode,
+) -> anyhow::Result<()> {
+    let (mut buf_input, buf_output) =
+        triple_buffer::triple_buffer(&SessionSnapshot::default());
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let mut session = SessionManager::new(app_config);
+            let state_rx = session.state_rx();
+
+            let _streamer = match mode {
+                SessionMode::Host => session.host().await,
+                SessionMode::Join(addr) => session.join(addr).await,
+            };
+
+            // セッション状態を TripleBuffer に転送し続ける
+            let mut watch = state_rx;
+            loop {
+                if watch.changed().await.is_err() {
+                    break;
+                }
+                let state = watch.borrow().clone();
+                buf_input.write(session_state_to_snapshot(&state));
+                if matches!(state, SessionState::Disconnected) {
+                    break;
+                }
+            }
+            session.shutdown().await.ok();
+        });
+    });
+
+    // HUD をメインスレッドで起動（winit 要件）
+    let ctx = HudContext {
+        meters,
+        session: buf_output,
+    };
+    cplp_hud::app::run_with_context(ctx)?;
+    engine.stop();
+    Ok(())
+}
+
+/// HUD なしでセッションを実行（tokio ランタイムでブロック）
+fn run_session_blocking(
+    engine: &mut AudioEngine,
+    app_config: AppConfig,
+    mode: SessionMode,
+) -> anyhow::Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let mut session = SessionManager::new(app_config);
+
+        let result = match mode {
+            SessionMode::Host => session.host().await,
+            SessionMode::Join(addr) => session.join(addr).await,
+        };
+
+        match result {
+            Ok(_streamer) => {
+                println!("セッション開始！");
+                let _ = tokio::signal::ctrl_c().await;
+            }
+            Err(e) => tracing::error!("セッションエラー: {}", e),
+        }
+
+        session.shutdown().await.ok();
+    });
+    engine.stop();
+    Ok(())
 }
 
 // ─── ステータス表示 ──────────────────────────────────────

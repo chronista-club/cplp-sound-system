@@ -88,7 +88,7 @@ impl TextEngine {
             .iter()
             .zip(self.buffers.iter())
             .map(|(entry, buffer)| {
-                let [r, g, b, _a] = entry.color;
+                let [r, g, b, a] = entry.color;
                 TextArea {
                     buffer,
                     left: entry.x,
@@ -100,10 +100,11 @@ impl TextEngine {
                         right: width as i32,
                         bottom: height as i32,
                     },
-                    default_color: GlyphonColor::rgb(
+                    default_color: GlyphonColor::rgba(
                         (r * 255.0) as u8,
                         (g * 255.0) as u8,
                         (b * 255.0) as u8,
+                        (a * 255.0) as u8,
                     ),
                     custom_glyphs: &[],
                 }

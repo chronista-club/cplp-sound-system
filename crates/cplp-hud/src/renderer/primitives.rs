@@ -41,7 +41,7 @@ pub struct QuadPipeline {
     viewport_buffer: wgpu::Buffer,
     viewport_bind_group: wgpu::BindGroup,
     vertices: Vec<QuadVertex>,
-    indices: Vec<u16>,
+    indices: Vec<u32>,
     viewport_size: [f32; 2],
     prepared_vertex_buffer: Option<wgpu::Buffer>,
     prepared_index_buffer: Option<wgpu::Buffer>,
@@ -153,7 +153,7 @@ impl QuadPipeline {
     }
 
     pub fn rect(&mut self, rect: Rect, color: Color) {
-        let base = self.vertices.len() as u16;
+        let base = self.vertices.len() as u32;
         let c = [color.r, color.g, color.b, color.a];
 
         self.vertices.push(QuadVertex {
@@ -223,7 +223,7 @@ impl QuadPipeline {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.viewport_bind_group, &[]);
         pass.set_vertex_buffer(0, vb.slice(..));
-        pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint16);
+        pass.set_index_buffer(ib.slice(..), wgpu::IndexFormat::Uint32);
         pass.draw_indexed(0..self.prepared_index_count, 0, 0..1);
     }
 }
