@@ -79,10 +79,20 @@ impl MidiSequencer {
         let mut commands = Vec::new();
 
         let effective_prev = if self.looping { prev_tick % duration } else { prev_tick };
+        let window_end = effective_prev + delta_ticks;
+
+        // ループ巻き戻し: window が duration を跨ぐ場合、2 区間に分割
+        let wraps = self.looping && window_end > duration;
 
         for event in &seq.events {
             let on_tick = event.tick;
-            if on_tick >= effective_prev && on_tick < effective_prev + delta_ticks {
+            let in_window = if wraps {
+                // [effective_prev, duration) or [0, window_end % duration)
+                on_tick >= effective_prev || on_tick < window_end % duration
+            } else {
+                on_tick >= effective_prev && on_tick < window_end
+            };
+            if in_window {
                 commands.push(NoteCommand::NoteOn {
                     note: event.note,
                     velocity: event.velocity,
@@ -90,7 +100,12 @@ impl MidiSequencer {
             }
 
             let off_tick = event.tick + event.duration_ticks;
-            if off_tick >= effective_prev && off_tick < effective_prev + delta_ticks {
+            let off_in_window = if wraps {
+                off_tick >= effective_prev || off_tick < window_end % duration
+            } else {
+                off_tick >= effective_prev && off_tick < window_end
+            };
+            if off_in_window {
                 commands.push(NoteCommand::NoteOff { note: event.note });
             }
         }

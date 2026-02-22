@@ -867,18 +867,19 @@ async fn command_input_loop(session: &SessionManager) {
         // TODO: UnisonChannel が Clone 対応したら HashMap<PeerId, UnisonChannel> を構築して
         //       ControlHandler::broadcast() を使う。現時点では peers() の control チャネルを
         //       直接イテレートして send_event する。
+        let json = match serde_json::to_value(&event) {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("コマンドのシリアライズに失敗: {}", e);
+                continue;
+            }
+        };
+
         let peers = session.p2p().peers();
         let mut sent = 0usize;
         for (peer_id, conn) in peers.iter() {
             if let Some(ref channels) = conn.channels {
-                let json = match serde_json::to_value(&event) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        tracing::error!("コマンドのシリアライズに失敗: {}", e);
-                        continue;
-                    }
-                };
-                if let Err(e) = channels.control.send_event("control", json).await {
+                if let Err(e) = channels.control.send_event("control", json.clone()).await {
                     tracing::warn!("コマンド送信失敗 (peer: {}): {}", peer_id, e);
                 } else {
                     sent += 1;
