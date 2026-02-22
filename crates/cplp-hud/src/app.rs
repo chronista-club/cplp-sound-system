@@ -860,7 +860,11 @@ impl ApplicationHandler for App {
                             if let Ok(mut guard) = bridge.live_data.lock() {
                                 if let Some(ref mut live) = *guard {
                                     let pcm = live.local_pcm.read().clone();
-                                    let snap = SessionSnapshot::default();
+                                    let snap = SessionSnapshot {
+                                        peer_name: "Local".into(),
+                                        connected: true,
+                                        ..Default::default()
+                                    };
                                     s.update_live(&live.meters, &snap, &pcm.samples);
                                 } else {
                                     s.update_demo(self.frame_count);
