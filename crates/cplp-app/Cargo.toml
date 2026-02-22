@@ -15,6 +15,7 @@ cplp-audio.workspace = true
 cplp-network.workspace = true
 cplp-session.workspace = true
 cplp-hud = { path = "../cplp-hud" }
+triple_buffer.workspace = true
 tokio.workspace = true
 anyhow.workspace = true
 tracing.workspace = true

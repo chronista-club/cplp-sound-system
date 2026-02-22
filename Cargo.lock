@@ -1639,6 +1639,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "triple_buffer",
 ]
 
 [[package]]

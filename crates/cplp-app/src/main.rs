@@ -2,13 +2,17 @@ mod logging;
 
 use std::f32::consts::PI;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 
 use clap::{Parser, Subcommand};
 use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_session::{LobbyClient, LobbyConfig, SessionManager};
+use cplp_hud::state::{AudioMeters, SessionSnapshot};
+use cplp_hud::HudContext;
+use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
 
 #[derive(Parser)]
 #[command(name = "cplp")]
@@ -71,6 +75,9 @@ enum SessionCmd {
         /// MIDI 入力ポート番号
         #[arg(short, long)]
         midi: Option<usize>,
+        /// HUD（ライブ演奏 GUI）を同時起動
+        #[arg(long)]
+        hud: bool,
     },
     /// P2P ピアに直接接続
     Connect {
@@ -87,6 +94,9 @@ enum SessionCmd {
         /// MIDI 入力ポート番号
         #[arg(short, long)]
         midi: Option<usize>,
+        /// HUD（ライブ演奏 GUI）を同時起動
+        #[arg(long)]
+        hud: bool,
     },
     /// ロビーサーバー経由でセッション管理
     Lobby {
@@ -278,43 +288,102 @@ fn main() -> anyhow::Result<()> {
                 plugin_id,
                 fx,
                 midi,
+                hud,
             } => {
+                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
                 let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone())?;
 
                 println!("ピアの接続を待機中 (port {port})...");
                 println!("(Ctrl+C で停止)");
 
-                let rt = tokio::runtime::Runtime::new()?;
-                rt.block_on(async {
-                    let app_config = AppConfig {
-                        audio: AudioConfig::default(),
-                        network: NetworkConfig {
-                            listen_port: port,
-                            ..Default::default()
-                        },
-                    };
-                    let mut session = SessionManager::new(app_config);
+                if hud {
+                    let meters = meters.unwrap();
+                    let (mut session_in, session_out) =
+                        triple_buffer::triple_buffer(&SessionSnapshot::default());
 
-                    tokio::select! {
-                        result = session.host() => {
-                            match result {
-                                Ok(_streamer) => {
-                                    println!("セッション開始！");
-                                    tokio::signal::ctrl_c().await.ok();
+                    // tokio runtime を背景スレッドで起動
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let app_config = AppConfig {
+                                audio: AudioConfig::default(),
+                                network: NetworkConfig {
+                                    listen_port: port,
+                                    ..Default::default()
+                                },
+                            };
+                            let mut session = SessionManager::new(app_config);
+                            let mut state_rx = session.state_rx();
+
+                            tokio::select! {
+                                result = session.host() => {
+                                    match result {
+                                        Ok(_streamer) => {
+                                            tracing::info!("セッション開始（HUD モード）");
+                                            // セッション状態を TripleBuffer に転写
+                                            loop {
+                                                tokio::select! {
+                                                    Ok(()) = state_rx.changed() => {
+                                                        let state = state_rx.borrow_and_update();
+                                                        session_in.write(session_state_to_snapshot(&state));
+                                                    }
+                                                    _ = tokio::signal::ctrl_c() => break,
+                                                }
+                                            }
+                                        }
+                                        Err(e) => tracing::error!("セッションエラー: {}", e),
+                                    }
                                 }
-                                Err(e) => tracing::error!("セッションエラー: {}", e),
+                                _ = tokio::signal::ctrl_c() => {
+                                    tracing::info!("停止中...");
+                                }
+                            }
+
+                            session.shutdown().await.ok();
+                        });
+                    });
+
+                    // main thread で HUD を起動（ウィンドウ閉じで戻る）
+                    println!("HUD を起動中...");
+                    cplp_hud::app::run_with_context(HudContext {
+                        meters,
+                        session: session_out,
+                    })?;
+
+                    engine.stop();
+                } else {
+                    let rt = tokio::runtime::Runtime::new()?;
+                    rt.block_on(async {
+                        let app_config = AppConfig {
+                            audio: AudioConfig::default(),
+                            network: NetworkConfig {
+                                listen_port: port,
+                                ..Default::default()
+                            },
+                        };
+                        let mut session = SessionManager::new(app_config);
+
+                        tokio::select! {
+                            result = session.host() => {
+                                match result {
+                                    Ok(_streamer) => {
+                                        println!("セッション開始！");
+                                        tokio::signal::ctrl_c().await.ok();
+                                    }
+                                    Err(e) => tracing::error!("セッションエラー: {}", e),
+                                }
+                            }
+                            _ = tokio::signal::ctrl_c() => {
+                                println!("\n停止中...");
                             }
                         }
-                        _ = tokio::signal::ctrl_c() => {
-                            println!("\n停止中...");
-                        }
-                    }
 
-                    session.shutdown().await.ok();
-                });
+                        session.shutdown().await.ok();
+                    });
 
-                engine.stop();
+                    engine.stop();
+                }
             }
             SessionCmd::Connect {
                 addr,
@@ -322,44 +391,100 @@ fn main() -> anyhow::Result<()> {
                 plugin_id,
                 fx,
                 midi,
+                hud,
             } => {
                 let peer_addr: SocketAddr = addr.parse()?;
+                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
                 let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone())?;
 
                 println!("{} に接続中...", peer_addr);
                 println!("(Ctrl+C で停止)");
 
-                let rt = tokio::runtime::Runtime::new()?;
-                rt.block_on(async {
-                    let app_config = AppConfig {
-                        audio: AudioConfig::default(),
-                        network: NetworkConfig {
-                            listen_port: port,
-                            ..Default::default()
-                        },
-                    };
-                    let mut session = SessionManager::new(app_config);
+                if hud {
+                    let meters = meters.unwrap();
+                    let (mut session_in, session_out) =
+                        triple_buffer::triple_buffer(&SessionSnapshot::default());
 
-                    tokio::select! {
-                        result = session.join(peer_addr) => {
-                            match result {
-                                Ok(_streamer) => {
-                                    println!("セッション開始！");
-                                    tokio::signal::ctrl_c().await.ok();
+                    std::thread::spawn(move || {
+                        let rt = tokio::runtime::Runtime::new().unwrap();
+                        rt.block_on(async {
+                            let app_config = AppConfig {
+                                audio: AudioConfig::default(),
+                                network: NetworkConfig {
+                                    listen_port: port,
+                                    ..Default::default()
+                                },
+                            };
+                            let mut session = SessionManager::new(app_config);
+                            let mut state_rx = session.state_rx();
+
+                            tokio::select! {
+                                result = session.join(peer_addr) => {
+                                    match result {
+                                        Ok(_streamer) => {
+                                            tracing::info!("セッション開始（HUD モード）");
+                                            loop {
+                                                tokio::select! {
+                                                    Ok(()) = state_rx.changed() => {
+                                                        let state = state_rx.borrow_and_update();
+                                                        session_in.write(session_state_to_snapshot(&state));
+                                                    }
+                                                    _ = tokio::signal::ctrl_c() => break,
+                                                }
+                                            }
+                                        }
+                                        Err(e) => tracing::error!("セッションエラー: {}", e),
+                                    }
                                 }
-                                Err(e) => tracing::error!("セッションエラー: {}", e),
+                                _ = tokio::signal::ctrl_c() => {
+                                    tracing::info!("停止中...");
+                                }
+                            }
+
+                            session.shutdown().await.ok();
+                        });
+                    });
+
+                    println!("HUD を起動中...");
+                    cplp_hud::app::run_with_context(HudContext {
+                        meters,
+                        session: session_out,
+                    })?;
+
+                    engine.stop();
+                } else {
+                    let rt = tokio::runtime::Runtime::new()?;
+                    rt.block_on(async {
+                        let app_config = AppConfig {
+                            audio: AudioConfig::default(),
+                            network: NetworkConfig {
+                                listen_port: port,
+                                ..Default::default()
+                            },
+                        };
+                        let mut session = SessionManager::new(app_config);
+
+                        tokio::select! {
+                            result = session.join(peer_addr) => {
+                                match result {
+                                    Ok(_streamer) => {
+                                        println!("セッション開始！");
+                                        tokio::signal::ctrl_c().await.ok();
+                                    }
+                                    Err(e) => tracing::error!("セッションエラー: {}", e),
+                                }
+                            }
+                            _ = tokio::signal::ctrl_c() => {
+                                println!("\n停止中...");
                             }
                         }
-                        _ = tokio::signal::ctrl_c() => {
-                            println!("\n停止中...");
-                        }
-                    }
 
-                    session.shutdown().await.ok();
-                });
+                        session.shutdown().await.ok();
+                    });
 
-                engine.stop();
+                    engine.stop();
+                }
             }
             SessionCmd::Lobby { cmd: lobby_cmd } => {
                 let rt = tokio::runtime::Runtime::new()?;
@@ -631,6 +756,7 @@ fn setup_session_audio(
     plugin_id: &str,
     fx_id: Option<&str>,
     midi_port: Option<usize>,
+    meters: Option<Arc<AudioMeters>>,
 ) -> anyhow::Result<(
     AudioEngine,
     plugin_host::PluginHandle,
@@ -669,19 +795,27 @@ fn setup_session_audio(
         (None, None)
     };
 
-    // AudioEngine 起動
+    // AudioEngine 起動（meters があれば callback 内でメーター値を書き込む）
     let mut engine = AudioEngine::new(config.clone());
     if let Some(mut fx_processor) = fx_processor {
         let channels = config.channels as usize;
         let buf_size = config.buffer_size as usize * channels;
+        let m = meters.clone();
         engine.start(move |buf: &mut [f32]| {
             let mut synth_out = vec![0.0f32; buf.len().max(buf_size)];
             synth_processor.process(&mut synth_out[..buf.len()]);
             fx_processor.process_effect(&synth_out[..buf.len()], buf);
+            if let Some(m) = &m {
+                write_meters(m, buf);
+            }
         })?;
     } else {
+        let m = meters;
         engine.start(move |buf: &mut [f32]| {
             synth_processor.process(buf);
+            if let Some(m) = &m {
+                write_meters(m, buf);
+            }
         })?;
     }
 
@@ -695,6 +829,36 @@ fn setup_session_audio(
     };
 
     Ok((engine, synth_handle, fx_handle, midi_conn))
+}
+
+/// オーディオバッファから RMS レベルを計算し AudioMeters に書き込む
+fn write_meters(meters: &AudioMeters, buf: &[f32]) {
+    if buf.is_empty() {
+        return;
+    }
+    let sum: f32 = buf.iter().map(|s| s * s).sum();
+    let rms = (sum / buf.len() as f32).sqrt();
+    meters.local_level.store(rms, Relaxed);
+
+    let peak = buf.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    meters.local_peak.store(peak, Relaxed);
+}
+
+/// SessionState を HUD 用の SessionSnapshot に変換
+fn session_state_to_snapshot(state: &SessionState) -> SessionSnapshot {
+    match state {
+        SessionState::Streaming => SessionSnapshot {
+            connected: true,
+            peer_name: "Peer".into(),
+            ..Default::default()
+        },
+        SessionState::Connected => SessionSnapshot {
+            connected: true,
+            peer_name: "Peer (connecting...)".into(),
+            ..Default::default()
+        },
+        _ => SessionSnapshot::default(),
+    }
 }
 
 // ─── ステータス表示 ──────────────────────────────────────
