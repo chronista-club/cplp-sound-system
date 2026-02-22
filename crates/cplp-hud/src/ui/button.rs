@@ -1,13 +1,28 @@
-use crate::renderer::primitives::{Color, Rect, Vec2};
-use crate::renderer::text::TextEntry;
-use crate::renderer::Renderer;
 use super::event::{EventResponse, MouseButton, UiEvent};
 use super::widget::Widget;
+use crate::renderer::Renderer;
+use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::text::TextEntry;
 
 /// HUD 風デザイン定数
-const BG_COLOR: Color = Color { r: 0.12, g: 0.12, b: 0.15, a: 0.9 };
-const HOVER_COLOR: Color = Color { r: 0.2, g: 0.2, b: 0.25, a: 0.9 };
-const ACTIVE_COLOR: Color = Color { r: 0.2, g: 0.6, b: 0.9, a: 0.9 };
+const BG_COLOR: Color = Color {
+    r: 0.12,
+    g: 0.12,
+    b: 0.15,
+    a: 0.9,
+};
+const HOVER_COLOR: Color = Color {
+    r: 0.2,
+    g: 0.2,
+    b: 0.25,
+    a: 0.9,
+};
+const ACTIVE_COLOR: Color = Color {
+    r: 0.2,
+    g: 0.6,
+    b: 0.9,
+    a: 0.9,
+};
 const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
 const TEXT_SIZE: f32 = 14.0;
 const BUTTON_HEIGHT: f32 = 36.0;
@@ -31,7 +46,10 @@ impl Button {
             hovered: false,
             pressed: false,
             on_click: None,
-            size: Vec2 { x: w, y: BUTTON_HEIGHT },
+            size: Vec2 {
+                x: w,
+                y: BUTTON_HEIGHT,
+            },
         }
     }
 
@@ -108,7 +126,12 @@ mod tests {
     #[test]
     fn button_hover_detection() {
         let mut btn = Button::new("Test");
-        let rect = Rect { x: 10.0, y: 10.0, w: 100.0, h: 36.0 };
+        let rect = Rect {
+            x: 10.0,
+            y: 10.0,
+            w: 100.0,
+            h: 36.0,
+        };
         btn.event(&UiEvent::MouseMove(Vec2 { x: 50.0, y: 25.0 }), rect);
         assert!(btn.hovered);
         btn.event(&UiEvent::MouseMove(Vec2 { x: 200.0, y: 200.0 }), rect);
@@ -125,15 +148,26 @@ mod tests {
         let mut btn = Button::new("OK").on_click(move || {
             clicked_clone.set(true);
         });
-        let rect = Rect { x: 0.0, y: 0.0, w: 100.0, h: 36.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 100.0,
+            h: 36.0,
+        };
 
         // MouseDown → pressed
-        let r = btn.event(&UiEvent::MouseDown(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left), rect);
+        let r = btn.event(
+            &UiEvent::MouseDown(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left),
+            rect,
+        );
         assert_eq!(r, EventResponse::Consumed);
         assert!(btn.pressed);
 
         // MouseUp → コールバック発火
-        let r = btn.event(&UiEvent::MouseUp(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left), rect);
+        let r = btn.event(
+            &UiEvent::MouseUp(Vec2 { x: 50.0, y: 18.0 }, MouseButton::Left),
+            rect,
+        );
         assert_eq!(r, EventResponse::Consumed);
         assert!(clicked.get());
         assert!(!btn.pressed);
@@ -142,8 +176,16 @@ mod tests {
     #[test]
     fn button_click_outside_ignored() {
         let mut btn = Button::new("X");
-        let rect = Rect { x: 0.0, y: 0.0, w: 50.0, h: 36.0 };
-        let r = btn.event(&UiEvent::MouseDown(Vec2 { x: 200.0, y: 200.0 }, MouseButton::Left), rect);
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 50.0,
+            h: 36.0,
+        };
+        let r = btn.event(
+            &UiEvent::MouseDown(Vec2 { x: 200.0, y: 200.0 }, MouseButton::Left),
+            rect,
+        );
         assert_eq!(r, EventResponse::Ignored);
         assert!(!btn.pressed);
     }

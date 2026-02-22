@@ -1,6 +1,6 @@
-use crate::renderer::primitives::{Rect, Vec2};
+use super::event::{EventResponse, UiEvent};
 use crate::renderer::Renderer;
-use super::event::{UiEvent, EventResponse};
+use crate::renderer::primitives::{Rect, Vec2};
 
 /// UI ウィジェットの共通トレイト。
 /// measure → draw → event のライフサイクルで駆動される。

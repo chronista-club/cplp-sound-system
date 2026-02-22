@@ -1,15 +1,30 @@
-use crate::renderer::primitives::{Color, Rect, Vec2};
-use crate::renderer::text::TextEntry;
-use crate::renderer::Renderer;
 use super::event::{EventResponse, Key, MouseButton, UiEvent};
 use super::widget::Widget;
+use crate::renderer::Renderer;
+use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::text::TextEntry;
 
 /// HUD 風デザイン定数
-const BG_COLOR: Color = Color { r: 0.12, g: 0.12, b: 0.15, a: 0.9 };
-const FOCUSED_BG: Color = Color { r: 0.15, g: 0.15, b: 0.2, a: 0.9 };
+const BG_COLOR: Color = Color {
+    r: 0.12,
+    g: 0.12,
+    b: 0.15,
+    a: 0.9,
+};
+const FOCUSED_BG: Color = Color {
+    r: 0.15,
+    g: 0.15,
+    b: 0.2,
+    a: 0.9,
+};
 const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
 const PLACEHOLDER_COLOR: [f32; 4] = [0.45, 0.45, 0.5, 1.0];
-const CURSOR_COLOR: Color = Color { r: 0.85, g: 0.85, b: 0.85, a: 1.0 };
+const CURSOR_COLOR: Color = Color {
+    r: 0.85,
+    g: 0.85,
+    b: 0.85,
+    a: 1.0,
+};
 const TEXT_SIZE: f32 = 14.0;
 const INPUT_WIDTH: f32 = 300.0;
 const INPUT_HEIGHT: f32 = 32.0;
@@ -32,7 +47,10 @@ impl TextInput {
             cursor: 0,
             focused: false,
             placeholder: placeholder.to_string(),
-            size: Vec2 { x: INPUT_WIDTH, y: INPUT_HEIGHT },
+            size: Vec2 {
+                x: INPUT_WIDTH,
+                y: INPUT_HEIGHT,
+            },
         }
     }
 
@@ -91,7 +109,12 @@ impl Widget for TextInput {
         if self.focused {
             let cursor_x = rect.x + PADDING_LEFT + self.cursor as f32 * CHAR_WIDTH;
             renderer.rect(
-                Rect { x: cursor_x, y: ty, w: CURSOR_W, h: TEXT_SIZE },
+                Rect {
+                    x: cursor_x,
+                    y: ty,
+                    w: CURSOR_W,
+                    h: TEXT_SIZE,
+                },
                 CURSOR_COLOR,
             );
         }
@@ -152,7 +175,12 @@ mod tests {
     fn text_input_typing() {
         let mut input = TextInput::new("Enter session ID");
         input.focused = true;
-        let rect = Rect { x: 0.0, y: 0.0, w: 300.0, h: 32.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 300.0,
+            h: 32.0,
+        };
         input.event(&UiEvent::KeyDown(Key::Char('a')), rect);
         input.event(&UiEvent::KeyDown(Key::Char('b')), rect);
         assert_eq!(input.text(), "ab");
@@ -164,7 +192,12 @@ mod tests {
     fn text_input_cursor_movement() {
         let mut input = TextInput::new("");
         input.focused = true;
-        let rect = Rect { x: 0.0, y: 0.0, w: 300.0, h: 32.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 300.0,
+            h: 32.0,
+        };
 
         // "abc" を入力
         input.event(&UiEvent::KeyDown(Key::Char('a')), rect);
@@ -185,11 +218,19 @@ mod tests {
     #[test]
     fn text_input_focus_on_click() {
         let mut input = TextInput::new("placeholder");
-        let rect = Rect { x: 0.0, y: 0.0, w: 300.0, h: 32.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 300.0,
+            h: 32.0,
+        };
         assert!(!input.focused);
 
         // rect 内クリックでフォーカス
-        input.event(&UiEvent::MouseDown(Vec2 { x: 50.0, y: 16.0 }, MouseButton::Left), rect);
+        input.event(
+            &UiEvent::MouseDown(Vec2 { x: 50.0, y: 16.0 }, MouseButton::Left),
+            rect,
+        );
         assert!(input.focused);
 
         // Enter で確定（フォーカス解除）
@@ -200,7 +241,12 @@ mod tests {
     #[test]
     fn text_input_unfocused_ignores_keys() {
         let mut input = TextInput::new("");
-        let rect = Rect { x: 0.0, y: 0.0, w: 300.0, h: 32.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 300.0,
+            h: 32.0,
+        };
         let r = input.event(&UiEvent::KeyDown(Key::Char('a')), rect);
         assert_eq!(r, EventResponse::Ignored);
         assert_eq!(input.text(), "");

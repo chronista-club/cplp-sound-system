@@ -1,7 +1,7 @@
-use crate::renderer::primitives::{Rect, Vec2};
-use crate::renderer::Renderer;
+use super::event::{EventResponse, UiEvent};
 use super::widget::Widget;
-use super::event::{UiEvent, EventResponse};
+use crate::renderer::Renderer;
+use crate::renderer::primitives::{Rect, Vec2};
 
 /// 子ウィジェットを垂直方向に並べるレイアウト
 pub struct VStack {
@@ -50,7 +50,10 @@ impl Widget for VStack {
             }
         }
 
-        Vec2 { x: max_w, y: total_h }
+        Vec2 {
+            x: max_w,
+            y: total_h,
+        }
     }
 
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
@@ -108,7 +111,10 @@ impl Widget for HStack {
             }
         }
 
-        Vec2 { x: total_w, y: max_h }
+        Vec2 {
+            x: total_w,
+            y: max_h,
+        }
     }
 
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {

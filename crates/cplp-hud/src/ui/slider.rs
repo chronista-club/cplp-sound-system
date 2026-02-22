@@ -1,13 +1,28 @@
-use crate::renderer::primitives::{Color, Rect, Vec2};
-use crate::renderer::text::TextEntry;
-use crate::renderer::Renderer;
 use super::event::{EventResponse, MouseButton, UiEvent};
 use super::widget::Widget;
+use crate::renderer::Renderer;
+use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::text::TextEntry;
 
 /// HUD 風デザイン定数
-const BG_COLOR: Color = Color { r: 0.12, g: 0.12, b: 0.15, a: 0.9 };
-const ACTIVE_COLOR: Color = Color { r: 0.2, g: 0.6, b: 0.9, a: 0.9 };
-const KNOB_COLOR: Color = Color { r: 0.85, g: 0.85, b: 0.85, a: 1.0 };
+const BG_COLOR: Color = Color {
+    r: 0.12,
+    g: 0.12,
+    b: 0.15,
+    a: 0.9,
+};
+const ACTIVE_COLOR: Color = Color {
+    r: 0.2,
+    g: 0.6,
+    b: 0.9,
+    a: 0.9,
+};
+const KNOB_COLOR: Color = Color {
+    r: 0.85,
+    g: 0.85,
+    b: 0.85,
+    a: 1.0,
+};
 const TEXT_COLOR: [f32; 4] = [0.85, 0.85, 0.85, 1.0];
 const TEXT_SIZE: f32 = 14.0;
 const SLIDER_WIDTH: f32 = 200.0;
@@ -31,7 +46,10 @@ impl Slider {
             dragging: false,
             hovered: false,
             label: label.to_string(),
-            size: Vec2 { x: SLIDER_WIDTH, y: SLIDER_HEIGHT },
+            size: Vec2 {
+                x: SLIDER_WIDTH,
+                y: SLIDER_HEIGHT,
+            },
         }
     }
 
@@ -58,14 +76,24 @@ impl Widget for Slider {
         // 背景トラック
         let track_y = rect.y + (rect.h - TRACK_H) / 2.0;
         renderer.rect(
-            Rect { x: rect.x, y: track_y, w: rect.w, h: TRACK_H },
+            Rect {
+                x: rect.x,
+                y: track_y,
+                w: rect.w,
+                h: TRACK_H,
+            },
             BG_COLOR,
         );
 
         // フィル部分（value 分の幅）
         let fill_w = rect.w * self.value;
         renderer.rect(
-            Rect { x: rect.x, y: track_y, w: fill_w, h: TRACK_H },
+            Rect {
+                x: rect.x,
+                y: track_y,
+                w: fill_w,
+                h: TRACK_H,
+            },
             ACTIVE_COLOR,
         );
 
@@ -73,7 +101,12 @@ impl Widget for Slider {
         let knob_x = rect.x + fill_w - KNOB_W / 2.0;
         let knob_y = rect.y + (rect.h - KNOB_H) / 2.0;
         renderer.rect(
-            Rect { x: knob_x, y: knob_y, w: KNOB_W, h: KNOB_H },
+            Rect {
+                x: knob_x,
+                y: knob_y,
+                w: KNOB_W,
+                h: KNOB_H,
+            },
             KNOB_COLOR,
         );
 
@@ -138,8 +171,16 @@ mod tests {
     #[test]
     fn slider_drag_updates_value() {
         let mut slider = Slider::new("Mix");
-        let rect = Rect { x: 0.0, y: 0.0, w: 200.0, h: 28.0 };
-        slider.event(&UiEvent::MouseDown(Vec2 { x: 100.0, y: 14.0 }, MouseButton::Left), rect);
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 200.0,
+            h: 28.0,
+        };
+        slider.event(
+            &UiEvent::MouseDown(Vec2 { x: 100.0, y: 14.0 }, MouseButton::Left),
+            rect,
+        );
         assert!((slider.value() - 0.5).abs() < 0.01);
     }
 
@@ -155,10 +196,18 @@ mod tests {
     #[test]
     fn slider_drag_and_release() {
         let mut slider = Slider::new("Pan");
-        let rect = Rect { x: 0.0, y: 0.0, w: 200.0, h: 28.0 };
+        let rect = Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 200.0,
+            h: 28.0,
+        };
 
         // ドラッグ開始
-        slider.event(&UiEvent::MouseDown(Vec2 { x: 50.0, y: 14.0 }, MouseButton::Left), rect);
+        slider.event(
+            &UiEvent::MouseDown(Vec2 { x: 50.0, y: 14.0 }, MouseButton::Left),
+            rect,
+        );
         assert!(slider.dragging);
         assert!((slider.value() - 0.25).abs() < 0.01);
 
@@ -167,7 +216,10 @@ mod tests {
         assert!((slider.value() - 0.75).abs() < 0.01);
 
         // リリース
-        slider.event(&UiEvent::MouseUp(Vec2 { x: 150.0, y: 14.0 }, MouseButton::Left), rect);
+        slider.event(
+            &UiEvent::MouseUp(Vec2 { x: 150.0, y: 14.0 }, MouseButton::Left),
+            rect,
+        );
         assert!(!slider.dragging);
     }
 }

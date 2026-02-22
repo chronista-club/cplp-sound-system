@@ -25,8 +25,7 @@ pub struct Rect {
 
 impl Rect {
     pub fn contains(&self, pos: Vec2) -> bool {
-        pos.x >= self.x && pos.x <= self.x + self.w
-            && pos.y >= self.y && pos.y <= self.y + self.h
+        pos.x >= self.x && pos.x <= self.x + self.w && pos.y >= self.y && pos.y <= self.y + self.h
     }
 }
 

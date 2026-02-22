@@ -6,12 +6,13 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
+use crate::HudContext;
+use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
-use crate::renderer::Renderer;
 use crate::state::{AudioMeters, SessionSnapshot};
 use crate::ui::button::Button;
-use crate::ui::event::{from_window_event, EventResponse, UiEvent};
+use crate::ui::event::{EventResponse, UiEvent, from_window_event};
 use crate::ui::list::List;
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
@@ -20,7 +21,6 @@ use crate::visuals::connection::ConnectionIndicator;
 use crate::visuals::meters::LevelMeter;
 use crate::visuals::spectrum::Spectrum;
 use crate::visuals::waveform::Waveform;
-use crate::HudContext;
 
 // ── 画面遷移アクション ──────────────────────────────
 
@@ -72,10 +72,7 @@ impl SetupScreen {
         ]);
 
         let mut midi_list = List::new(2);
-        midi_list.set_items(vec![
-            "MIDI Keyboard 1".into(),
-            "USB MIDI".into(),
-        ]);
+        midi_list.set_items(vec!["MIDI Keyboard 1".into(), "USB MIDI".into()]);
 
         Self {
             plugin_list,
@@ -93,11 +90,36 @@ impl SetupScreen {
         let midi_y = CONTENT_Y + 160.0;
 
         SetupLayout {
-            plugin_list: Rect { x: PADDING, y: CONTENT_Y + 24.0, w: list_w, h: 120.0 },
-            midi_list: Rect { x: PADDING, y: midi_y + 24.0, w: list_w, h: 60.0 },
-            session_input: Rect { x: right_x, y: CONTENT_Y + 24.0, w: list_w, h: 32.0 },
-            create_btn: Rect { x: right_x, y: CONTENT_Y + 68.0, w: list_w, h: 36.0 },
-            join_btn: Rect { x: right_x, y: CONTENT_Y + 116.0, w: list_w, h: 36.0 },
+            plugin_list: Rect {
+                x: PADDING,
+                y: CONTENT_Y + 24.0,
+                w: list_w,
+                h: 120.0,
+            },
+            midi_list: Rect {
+                x: PADDING,
+                y: midi_y + 24.0,
+                w: list_w,
+                h: 60.0,
+            },
+            session_input: Rect {
+                x: right_x,
+                y: CONTENT_Y + 24.0,
+                w: list_w,
+                h: 32.0,
+            },
+            create_btn: Rect {
+                x: right_x,
+                y: CONTENT_Y + 68.0,
+                w: list_w,
+                h: 36.0,
+            },
+            join_btn: Rect {
+                x: right_x,
+                y: CONTENT_Y + 116.0,
+                w: list_w,
+                h: 36.0,
+            },
             midi_label_y: midi_y,
             right_x,
         }
@@ -207,12 +229,21 @@ impl ConnectingScreen {
     }
 
     fn cancel_btn_rect() -> Rect {
-        Rect { x: 260.0, y: 280.0, w: 120.0, h: 36.0 }
+        Rect {
+            x: 260.0,
+            y: 280.0,
+            w: 120.0,
+            h: 36.0,
+        }
     }
 
     pub fn draw(&self, renderer: &mut Renderer) {
         // "Connecting" + 点滅ドット
-        let dots = if self.elapsed_frames % 60 < 30 { "..." } else { "" };
+        let dots = if self.elapsed_frames % 60 < 30 {
+            "..."
+        } else {
+            ""
+        };
         renderer.text(TextEntry {
             text: format!("Connecting{}", dots),
             x: 240.0,
@@ -271,14 +302,29 @@ impl LiveScreen {
             remote_meter: LevelMeter::new("Peer"),
             local_waveform: Waveform::new(
                 "You",
-                Color { r: 0.0, g: 0.9, b: 0.9, a: 1.0 }, // シアン
+                Color {
+                    r: 0.0,
+                    g: 0.9,
+                    b: 0.9,
+                    a: 1.0,
+                }, // シアン
             ),
             remote_waveform: Waveform::new(
                 "Peer",
-                Color { r: 0.9, g: 0.2, b: 0.9, a: 1.0 }, // マゼンタ
+                Color {
+                    r: 0.9,
+                    g: 0.2,
+                    b: 0.9,
+                    a: 1.0,
+                }, // マゼンタ
             ),
             local_spectrum: Spectrum::new(
-                Color { r: 0.0, g: 0.8, b: 0.9, a: 1.0 }, // シアン系
+                Color {
+                    r: 0.0,
+                    g: 0.8,
+                    b: 0.9,
+                    a: 1.0,
+                }, // シアン系
             ),
             mix_slider: Slider::new("Mix Balance"),
         }
@@ -297,13 +343,48 @@ impl LiveScreen {
         let bottom_y = spectrum_y + spectrum_h + pad;
 
         LiveLayout {
-            connection: Rect { x: pad, y: pad, w: w - pad * 2.0, h: 30.0 },
-            local_meter: Rect { x: pad, y: section_y, w: half_w, h: 20.0 },
-            local_waveform: Rect { x: pad, y: section_y + 24.0, w: half_w, h: waveform_h },
-            remote_meter: Rect { x: right_x, y: section_y, w: half_w, h: 20.0 },
-            remote_waveform: Rect { x: right_x, y: section_y + 24.0, w: half_w, h: waveform_h },
-            local_spectrum: Rect { x: pad, y: spectrum_y, w: w - pad * 2.0, h: spectrum_h },
-            mix_slider: Rect { x: pad, y: bottom_y, w: w - pad * 2.0, h: 28.0 },
+            connection: Rect {
+                x: pad,
+                y: pad,
+                w: w - pad * 2.0,
+                h: 30.0,
+            },
+            local_meter: Rect {
+                x: pad,
+                y: section_y,
+                w: half_w,
+                h: 20.0,
+            },
+            local_waveform: Rect {
+                x: pad,
+                y: section_y + 24.0,
+                w: half_w,
+                h: waveform_h,
+            },
+            remote_meter: Rect {
+                x: right_x,
+                y: section_y,
+                w: half_w,
+                h: 20.0,
+            },
+            remote_waveform: Rect {
+                x: right_x,
+                y: section_y + 24.0,
+                w: half_w,
+                h: waveform_h,
+            },
+            local_spectrum: Rect {
+                x: pad,
+                y: spectrum_y,
+                w: w - pad * 2.0,
+                h: spectrum_h,
+            },
+            mix_slider: Rect {
+                x: pad,
+                y: bottom_y,
+                w: w - pad * 2.0,
+                h: 28.0,
+            },
             pad,
             bottom_y,
         }
@@ -456,9 +537,12 @@ impl ApplicationHandler for App {
         let attrs = Window::default_attributes()
             .with_title("cplp")
             .with_inner_size(winit::dpi::LogicalSize::new(640.0, 480.0));
-        let window = Arc::new(event_loop.create_window(attrs).expect("failed to create window"));
-        let renderer =
-            Renderer::new(window.clone()).expect("failed to initialize renderer");
+        let window = Arc::new(
+            event_loop
+                .create_window(attrs)
+                .expect("failed to create window"),
+        );
+        let renderer = Renderer::new(window.clone()).expect("failed to initialize renderer");
         self.window = Some(window);
         self.renderer = Some(renderer);
     }
@@ -530,7 +614,9 @@ impl ApplicationHandler for App {
                         e => e,
                     };
 
-                    let (w, h) = self.renderer.as_ref()
+                    let (w, h) = self
+                        .renderer
+                        .as_ref()
                         .map(|r| {
                             let s = r.gpu().size;
                             (s.width as f32, s.height as f32)

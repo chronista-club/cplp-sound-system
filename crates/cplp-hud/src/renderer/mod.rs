@@ -107,10 +107,7 @@ impl Renderer {
             }
         };
         let view = output.texture.create_view(&Default::default());
-        let mut encoder = self
-            .gpu
-            .device
-            .create_command_encoder(&Default::default());
+        let mut encoder = self.gpu.device.create_command_encoder(&Default::default());
 
         // グロー有効時: 中間テクスチャに描画 → ブラー → コンポジット
         // グロー無効時: 直接 surface に描画

@@ -1,6 +1,6 @@
+use crate::renderer::Renderer;
 use crate::renderer::primitives::{Color, Rect};
 use crate::renderer::text::TextEntry;
-use crate::renderer::Renderer;
 
 /// レベル値 (0.0–1.0) を dB に変換
 pub fn level_to_db(level: f32) -> f32 {
@@ -10,11 +10,26 @@ pub fn level_to_db(level: f32) -> f32 {
 /// レベル値に応じたメーターカラーを返す（緑→黄→赤）
 pub fn meter_color(level: f32) -> Color {
     if level < 0.6 {
-        Color { r: 0.2, g: 0.8, b: 0.4, a: 1.0 }
+        Color {
+            r: 0.2,
+            g: 0.8,
+            b: 0.4,
+            a: 1.0,
+        }
     } else if level < 0.85 {
-        Color { r: 0.9, g: 0.8, b: 0.2, a: 1.0 }
+        Color {
+            r: 0.9,
+            g: 0.8,
+            b: 0.2,
+            a: 1.0,
+        }
     } else {
-        Color { r: 0.9, g: 0.2, b: 0.2, a: 1.0 }
+        Color {
+            r: 0.9,
+            g: 0.2,
+            b: 0.2,
+            a: 1.0,
+        }
     }
 }
 
@@ -56,7 +71,12 @@ impl LevelMeter {
 
     /// 描画（Renderer の rect() と text() を使う）
     pub fn draw(&self, renderer: &mut Renderer, rect: Rect) {
-        let bg_color = Color { r: 0.15, g: 0.15, b: 0.18, a: 1.0 };
+        let bg_color = Color {
+            r: 0.15,
+            g: 0.15,
+            b: 0.18,
+            a: 1.0,
+        };
 
         // 1. 背景矩形
         renderer.rect(rect, bg_color);
@@ -65,7 +85,12 @@ impl LevelMeter {
         let bar_w = rect.w * self.level;
         if bar_w > 0.0 {
             renderer.rect(
-                Rect { x: rect.x, y: rect.y, w: bar_w, h: rect.h },
+                Rect {
+                    x: rect.x,
+                    y: rect.y,
+                    w: bar_w,
+                    h: rect.h,
+                },
                 meter_color(self.level),
             );
         }
@@ -74,8 +99,18 @@ impl LevelMeter {
         if self.peak > 0.0 {
             let peak_x = rect.x + rect.w * self.peak - 1.0;
             renderer.rect(
-                Rect { x: peak_x, y: rect.y, w: 2.0, h: rect.h },
-                Color { r: 1.0, g: 1.0, b: 1.0, a: 1.0 },
+                Rect {
+                    x: peak_x,
+                    y: rect.y,
+                    w: 2.0,
+                    h: rect.h,
+                },
+                Color {
+                    r: 1.0,
+                    g: 1.0,
+                    b: 1.0,
+                    a: 1.0,
+                },
             );
         }
 
@@ -131,8 +166,32 @@ mod tests {
 
     #[test]
     fn meter_color_gradient() {
-        assert_eq!(meter_color(0.3), Color { r: 0.2, g: 0.8, b: 0.4, a: 1.0 }); // 緑
-        assert_eq!(meter_color(0.7), Color { r: 0.9, g: 0.8, b: 0.2, a: 1.0 }); // 黄
-        assert_eq!(meter_color(0.9), Color { r: 0.9, g: 0.2, b: 0.2, a: 1.0 }); // 赤
+        assert_eq!(
+            meter_color(0.3),
+            Color {
+                r: 0.2,
+                g: 0.8,
+                b: 0.4,
+                a: 1.0
+            }
+        ); // 緑
+        assert_eq!(
+            meter_color(0.7),
+            Color {
+                r: 0.9,
+                g: 0.8,
+                b: 0.2,
+                a: 1.0
+            }
+        ); // 黄
+        assert_eq!(
+            meter_color(0.9),
+            Color {
+                r: 0.9,
+                g: 0.2,
+                b: 0.2,
+                a: 1.0
+            }
+        ); // 赤
     }
 }
