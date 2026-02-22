@@ -5,7 +5,7 @@ pub mod ui;
 pub mod visuals;
 
 use std::sync::Arc;
-use state::{AudioMeters, SessionSnapshot};
+use state::{AudioMeters, PcmSnapshot, SessionSnapshot};
 
 /// HUD に外部データを供給するためのコンテキスト。
 ///
@@ -16,4 +16,6 @@ pub struct HudContext {
     pub meters: Arc<AudioMeters>,
     /// セッション状態スナップショット（TripleBuffer 読み取り側）
     pub session: triple_buffer::Output<SessionSnapshot>,
+    /// ローカル PCM サンプル（TripleBuffer 読み取り側）
+    pub local_pcm: triple_buffer::Output<PcmSnapshot>,
 }

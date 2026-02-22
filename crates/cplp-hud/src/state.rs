@@ -1,5 +1,8 @@
 use atomic_float::AtomicF32;
 
+/// PCM バッファサイズ（FFT 1024 + 波形表示用）
+pub const PCM_BUFFER_SIZE: usize = 1024;
+
 /// オーディオスレッドから直接書き込まれるメーター値（最速パス）
 pub struct AudioMeters {
     pub local_level: AtomicF32,
@@ -15,6 +18,54 @@ impl Default for AudioMeters {
             local_peak: AtomicF32::new(0.0),
             remote_level: AtomicF32::new(0.0),
             remote_peak: AtomicF32::new(0.0),
+        }
+    }
+}
+
+/// オーディオスレッド側で PCM を蓄積し、TripleBuffer に書き出すライター。
+///
+/// オーディオコールバックの小さなバッファ (128 samples) を内部リングバッファに追記し、
+/// `PCM_BUFFER_SIZE` 分溜まるたびに TripleBuffer に flush する。
+pub struct PcmWriter {
+    ring: Vec<f32>,
+    pos: usize,
+    output: triple_buffer::Input<PcmSnapshot>,
+}
+
+/// HUD 側で読み取る PCM スナップショット
+#[derive(Clone)]
+pub struct PcmSnapshot {
+    pub samples: Vec<f32>,
+}
+
+impl Default for PcmSnapshot {
+    fn default() -> Self {
+        Self {
+            samples: vec![0.0; PCM_BUFFER_SIZE],
+        }
+    }
+}
+
+impl PcmWriter {
+    pub fn new(output: triple_buffer::Input<PcmSnapshot>) -> Self {
+        Self {
+            ring: vec![0.0; PCM_BUFFER_SIZE],
+            pos: 0,
+            output,
+        }
+    }
+
+    /// オーディオコールバックから呼び出す。小バッファを蓄積し、閾値到達で flush。
+    pub fn push(&mut self, buf: &[f32]) {
+        for &s in buf {
+            self.ring[self.pos] = s;
+            self.pos += 1;
+            if self.pos >= PCM_BUFFER_SIZE {
+                self.output.write(PcmSnapshot {
+                    samples: self.ring.clone(),
+                });
+                self.pos = 0;
+            }
         }
     }
 }

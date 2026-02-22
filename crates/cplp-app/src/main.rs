@@ -10,7 +10,7 @@ use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_hud::state::{AudioMeters, SessionSnapshot};
+use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
 use cplp_hud::HudContext;
 use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
 
@@ -291,8 +291,14 @@ fn main() -> anyhow::Result<()> {
                 hud,
             } => {
                 let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let (pcm_writer, pcm_output) = if hud {
+                    let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
+                    (Some(PcmWriter::new(input)), Some(output))
+                } else {
+                    (None, None)
+                };
                 let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone())?;
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
 
                 println!("ピアの接続を待機中 (port {port})...");
                 println!("(Ctrl+C で停止)");
@@ -306,7 +312,7 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(meters) = meters {
-                    run_session_with_hud(&mut engine, meters, app_config, SessionMode::Host)?;
+                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Host)?;
                 } else {
                     run_session_blocking(&mut engine, app_config, SessionMode::Host)?;
                 }
@@ -321,8 +327,14 @@ fn main() -> anyhow::Result<()> {
             } => {
                 let peer_addr: SocketAddr = addr.parse()?;
                 let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let (pcm_writer, pcm_output) = if hud {
+                    let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
+                    (Some(PcmWriter::new(input)), Some(output))
+                } else {
+                    (None, None)
+                };
                 let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone())?;
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
 
                 println!("{} に接続中...", peer_addr);
                 println!("(Ctrl+C で停止)");
@@ -336,7 +348,7 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(meters) = meters {
-                    run_session_with_hud(&mut engine, meters, app_config, SessionMode::Join(peer_addr))?;
+                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Join(peer_addr))?;
                 } else {
                     run_session_blocking(&mut engine, app_config, SessionMode::Join(peer_addr))?;
                 }
@@ -612,6 +624,7 @@ fn setup_session_audio(
     fx_id: Option<&str>,
     midi_port: Option<usize>,
     meters: Option<Arc<AudioMeters>>,
+    pcm_writer: Option<PcmWriter>,
 ) -> anyhow::Result<(
     AudioEngine,
     plugin_host::PluginHandle,
@@ -650,12 +663,13 @@ fn setup_session_audio(
         (None, None)
     };
 
-    // AudioEngine 起動（meters があれば callback 内でメーター値を書き込む）
+    // AudioEngine 起動（meters + PCM writer があれば callback 内で書き込む）
     let mut engine = AudioEngine::new(config.clone());
     if let Some(mut fx_processor) = fx_processor {
         let channels = config.channels as usize;
         let buf_size = config.buffer_size as usize * channels;
         let m = meters.clone();
+        let mut pcm = pcm_writer;
         engine.start(move |buf: &mut [f32]| {
             let mut synth_out = vec![0.0f32; buf.len().max(buf_size)];
             synth_processor.process(&mut synth_out[..buf.len()]);
@@ -663,13 +677,20 @@ fn setup_session_audio(
             if let Some(m) = &m {
                 write_meters(m, buf);
             }
+            if let Some(pcm) = &mut pcm {
+                pcm.push(buf);
+            }
         })?;
     } else {
         let m = meters;
+        let mut pcm = pcm_writer;
         engine.start(move |buf: &mut [f32]| {
             synth_processor.process(buf);
             if let Some(m) = &m {
                 write_meters(m, buf);
+            }
+            if let Some(pcm) = &mut pcm {
+                pcm.push(buf);
             }
         })?;
     }
@@ -728,6 +749,7 @@ enum SessionMode {
 fn run_session_with_hud(
     engine: &mut AudioEngine,
     meters: Arc<AudioMeters>,
+    local_pcm: triple_buffer::Output<PcmSnapshot>,
     app_config: AppConfig,
     mode: SessionMode,
 ) -> anyhow::Result<()> {
@@ -765,6 +787,7 @@ fn run_session_with_hud(
     let ctx = HudContext {
         meters,
         session: buf_output,
+        local_pcm,
     };
     cplp_hud::app::run_with_context(ctx)?;
     engine.stop();

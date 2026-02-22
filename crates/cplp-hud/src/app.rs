@@ -18,6 +18,7 @@ use crate::ui::text_input::TextInput;
 use crate::ui::widget::Widget;
 use crate::visuals::connection::ConnectionIndicator;
 use crate::visuals::meters::LevelMeter;
+use crate::visuals::spectrum::Spectrum;
 use crate::visuals::waveform::Waveform;
 use crate::HudContext;
 
@@ -33,9 +34,9 @@ pub enum ScreenAction {
 // ── Screen 列挙型 ────────────────────────────────────
 
 pub enum Screen {
-    Setup(SetupScreen),
+    Setup(Box<SetupScreen>),
     Connecting(ConnectingScreen),
-    Live(LiveScreen),
+    Live(Box<LiveScreen>),
 }
 
 // ── レイアウト定数 ───────────────────────────────────
@@ -252,6 +253,7 @@ pub struct LiveScreen {
     remote_meter: LevelMeter,
     local_waveform: Waveform,
     remote_waveform: Waveform,
+    local_spectrum: Spectrum,
     mix_slider: Slider,
 }
 
@@ -275,27 +277,33 @@ impl LiveScreen {
                 "Peer",
                 Color { r: 0.9, g: 0.2, b: 0.9, a: 1.0 }, // マゼンタ
             ),
+            local_spectrum: Spectrum::new(
+                Color { r: 0.0, g: 0.8, b: 0.9, a: 1.0 }, // シアン系
+            ),
             mix_slider: Slider::new("Mix Balance"),
         }
     }
 
-    fn layout() -> LiveLayout {
+    /// ウィンドウサイズに応じたレスポンシブレイアウト
+    fn layout(w: f32, h: f32) -> LiveLayout {
         let pad = 10.0;
-        let w = 640.0;
         let half_w = (w - pad * 3.0) / 2.0;
         let section_y = 50.0;
         let right_x = half_w + pad * 2.0;
-        let bottom_y = section_y + 220.0;
+        // ウェーブフォーム高さ: 残りスペースから接続バー・メーター・スペクトラム・スライダーを引く
+        let waveform_h = (h - section_y - 24.0 - 28.0 - 100.0 - pad * 4.0 - 36.0).max(60.0);
+        let spectrum_y = section_y + 24.0 + waveform_h + pad;
+        let spectrum_h = 80.0f32.min((h - spectrum_y - 28.0 - pad * 2.0 - 20.0).max(40.0));
+        let bottom_y = spectrum_y + spectrum_h + pad;
 
         LiveLayout {
             connection: Rect { x: pad, y: pad, w: w - pad * 2.0, h: 30.0 },
-            local_meter: Rect { x: pad, y: section_y + 24.0, w: half_w, h: 24.0 },
-            local_waveform: Rect { x: pad, y: section_y + 56.0, w: half_w, h: 150.0 },
-            remote_meter: Rect { x: right_x, y: section_y + 24.0, w: half_w, h: 24.0 },
-            remote_waveform: Rect { x: right_x, y: section_y + 56.0, w: half_w, h: 150.0 },
+            local_meter: Rect { x: pad, y: section_y, w: half_w, h: 20.0 },
+            local_waveform: Rect { x: pad, y: section_y + 24.0, w: half_w, h: waveform_h },
+            remote_meter: Rect { x: right_x, y: section_y, w: half_w, h: 20.0 },
+            remote_waveform: Rect { x: right_x, y: section_y + 24.0, w: half_w, h: waveform_h },
+            local_spectrum: Rect { x: pad, y: spectrum_y, w: w - pad * 2.0, h: spectrum_h },
             mix_slider: Rect { x: pad, y: bottom_y, w: w - pad * 2.0, h: 28.0 },
-            section_y,
-            right_x,
             pad,
             bottom_y,
         }
@@ -308,7 +316,7 @@ impl LiveScreen {
         self.local_meter.update(local_level);
         self.remote_meter.update(remote_level);
 
-        let local_samples: Vec<f32> = (0..256)
+        let local_samples: Vec<f32> = (0..1024)
             .map(|i| (i as f32 * 0.05 + frame_count as f32 * 0.02).sin() * 0.6)
             .collect();
         let remote_samples: Vec<f32> = (0..256)
@@ -316,6 +324,7 @@ impl LiveScreen {
             .collect();
         self.local_waveform.update(&local_samples);
         self.remote_waveform.update(&remote_samples);
+        self.local_spectrum.update(&local_samples);
 
         self.connection.update(&SessionSnapshot {
             peer_name: "Player B".into(),
@@ -326,53 +335,46 @@ impl LiveScreen {
         });
     }
 
-    /// リアルデータモード: AudioMeters + SessionSnapshot から更新
-    pub fn update_live(&mut self, frame_count: u64, meters: &AudioMeters, snapshot: &SessionSnapshot) {
+    /// リアルデータモード: AudioMeters + SessionSnapshot + PCM から更新
+    pub fn update_live(
+        &mut self,
+        meters: &AudioMeters,
+        snapshot: &SessionSnapshot,
+        local_pcm: &[f32],
+    ) {
         let local_level = meters.local_level.load(Relaxed);
         let remote_level = meters.remote_level.load(Relaxed);
         self.local_meter.update(local_level);
         self.remote_meter.update(remote_level);
 
-        // ウェーブフォーム: レベルに連動したダミー波形（PCM ringbuf 接続は次フェーズ）
-        let local_samples: Vec<f32> = (0..256)
-            .map(|i| (i as f32 * 0.05 + frame_count as f32 * 0.02).sin() * local_level)
-            .collect();
+        self.local_waveform.update(local_pcm);
+        self.local_spectrum.update(local_pcm);
+
+        // リモート PCM は未接続（次フェーズ: ネットワーク受信 PCM）
         let remote_samples: Vec<f32> = (0..256)
-            .map(|i| (i as f32 * 0.07 + frame_count as f32 * 0.015).sin() * remote_level)
+            .map(|i| (i as f32 * 0.07).sin() * remote_level)
             .collect();
-        self.local_waveform.update(&local_samples);
         self.remote_waveform.update(&remote_samples);
 
         self.connection.update(snapshot);
     }
 
-    pub fn draw(&self, renderer: &mut Renderer) {
-        let l = Self::layout();
+    pub fn draw(&self, renderer: &mut Renderer, w: f32, h: f32) {
+        let l = Self::layout(w, h);
 
         // 上部: 接続情報バー
         self.connection.draw(renderer, l.connection);
 
         // 中央左: "You" + メーター + ウェーブフォーム
-        renderer.text(TextEntry {
-            text: "You".into(),
-            x: l.pad,
-            y: l.section_y,
-            size: 16.0,
-            color: [0.0, 0.9, 0.9, 1.0],
-        });
         self.local_meter.draw(renderer, l.local_meter);
         self.local_waveform.draw(renderer, l.local_waveform);
 
         // 中央右: "Peer" + メーター + ウェーブフォーム
-        renderer.text(TextEntry {
-            text: "Peer".into(),
-            x: l.right_x,
-            y: l.section_y,
-            size: 16.0,
-            color: [0.9, 0.2, 0.9, 1.0],
-        });
         self.remote_meter.draw(renderer, l.remote_meter);
         self.remote_waveform.draw(renderer, l.remote_waveform);
+
+        // スペクトラム
+        self.local_spectrum.draw(renderer, l.local_spectrum);
 
         // 下部: ミックススライダー + ステータステキスト
         self.mix_slider.draw(renderer, l.mix_slider);
@@ -385,8 +387,8 @@ impl LiveScreen {
         });
     }
 
-    pub fn event(&mut self, event: &UiEvent) -> ScreenAction {
-        let l = Self::layout();
+    pub fn event(&mut self, event: &UiEvent, w: f32, h: f32) -> ScreenAction {
+        let l = Self::layout(w, h);
         self.mix_slider.event(event, l.mix_slider);
         ScreenAction::None
     }
@@ -399,9 +401,8 @@ struct LiveLayout {
     local_waveform: Rect,
     remote_meter: Rect,
     remote_waveform: Rect,
+    local_spectrum: Rect,
     mix_slider: Rect,
-    section_y: f32,
-    right_x: f32,
     pad: f32,
     bottom_y: f32,
 }
@@ -422,7 +423,7 @@ impl App {
         Self {
             window: None,
             renderer: None,
-            screen: Screen::Setup(SetupScreen::new()),
+            screen: Screen::Setup(Box::default()),
             cursor_pos: Vec2 { x: 0.0, y: 0.0 },
             frame_count: 0,
             ctx,
@@ -436,10 +437,10 @@ impl App {
                 self.screen = Screen::Connecting(ConnectingScreen::new("DEMO-SESSION"));
             }
             ScreenAction::GoToLive => {
-                self.screen = Screen::Live(LiveScreen::new());
+                self.screen = Screen::Live(Box::default());
             }
             ScreenAction::GoToSetup => {
-                self.screen = Screen::Setup(SetupScreen::new());
+                self.screen = Screen::Setup(Box::default());
             }
             ScreenAction::None => {}
         }
@@ -475,6 +476,8 @@ impl ApplicationHandler for App {
                     return;
                 }
                 let renderer = self.renderer.as_mut().unwrap();
+                let gpu_size = renderer.gpu().size;
+                let (w, h) = (gpu_size.width as f32, gpu_size.height as f32);
 
                 // グロー設定: Live 画面のみ有効
                 renderer.set_glow_enabled(matches!(self.screen, Screen::Live(_)));
@@ -497,11 +500,12 @@ impl ApplicationHandler for App {
                     Screen::Live(s) => {
                         if let Some(ctx) = &mut self.ctx {
                             let snap = ctx.session.read().clone();
-                            s.update_live(self.frame_count, &ctx.meters, &snap);
+                            let pcm = ctx.local_pcm.read().clone();
+                            s.update_live(&ctx.meters, &snap, &pcm.samples);
                         } else {
                             s.update_demo(self.frame_count);
                         }
-                        s.draw(renderer);
+                        s.draw(renderer, w, h);
                         ScreenAction::None
                     }
                 };
@@ -526,10 +530,17 @@ impl ApplicationHandler for App {
                         e => e,
                     };
 
+                    let (w, h) = self.renderer.as_ref()
+                        .map(|r| {
+                            let s = r.gpu().size;
+                            (s.width as f32, s.height as f32)
+                        })
+                        .unwrap_or((640.0, 480.0));
+
                     let action = match &mut self.screen {
                         Screen::Setup(s) => s.event(&ui_event),
                         Screen::Connecting(s) => s.event(&ui_event),
-                        Screen::Live(s) => s.event(&ui_event),
+                        Screen::Live(s) => s.event(&ui_event, w, h),
                     };
 
                     self.apply_action(action);
