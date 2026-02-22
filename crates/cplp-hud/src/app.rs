@@ -3,7 +3,7 @@ use std::sync::atomic::Ordering::Relaxed;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::renderer::primitives::{Color, Rect, Vec2};
@@ -52,6 +52,12 @@ pub struct SetupScreen {
     session_input: TextInput,
     create_btn: Button,
     join_btn: Button,
+}
+
+impl Default for SetupScreen {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SetupScreen {
@@ -153,10 +159,10 @@ impl SetupScreen {
         let join_resp = self.join_btn.event(event, l.join_btn);
 
         // MouseUp で Consumed = ボタンクリック完了 → 画面遷移
-        if matches!(event, UiEvent::MouseUp(_, _)) {
-            if create_resp == EventResponse::Consumed || join_resp == EventResponse::Consumed {
-                return ScreenAction::GoToConnecting;
-            }
+        if matches!(event, UiEvent::MouseUp(_, _))
+            && (create_resp == EventResponse::Consumed || join_resp == EventResponse::Consumed)
+        {
+            return ScreenAction::GoToConnecting;
         }
 
         ScreenAction::None
@@ -247,6 +253,12 @@ pub struct LiveScreen {
     local_waveform: Waveform,
     remote_waveform: Waveform,
     mix_slider: Slider,
+}
+
+impl Default for LiveScreen {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl LiveScreen {
@@ -439,7 +451,6 @@ impl ApplicationHandler for App {
         if self.window.is_some() {
             return;
         }
-        event_loop.set_control_flow(ControlFlow::Poll);
 
         let attrs = Window::default_attributes()
             .with_title("cplp")
@@ -527,9 +538,13 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(window) = &self.window {
             window.request_redraw();
+            // ~60fps でリドローを要求（CPU 負荷軽減）
+            event_loop.set_control_flow(winit::event_loop::ControlFlow::WaitUntil(
+                std::time::Instant::now() + std::time::Duration::from_millis(16),
+            ));
         }
     }
 }

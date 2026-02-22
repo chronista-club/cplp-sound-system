@@ -90,11 +90,7 @@ pub fn from_window_event(event: &WindowEvent) -> Option<UiEvent> {
                     Some(UiEvent::KeyDown(key))
                 }
                 WinitKey::Character(s) => {
-                    if let Some(ch) = s.chars().next() {
-                        Some(UiEvent::KeyDown(Key::Char(ch)))
-                    } else {
-                        None
-                    }
+                    s.chars().next().map(|ch| UiEvent::KeyDown(Key::Char(ch)))
                 }
                 _ => None,
             }

@@ -13,7 +13,7 @@ pub struct GpuContext {
 impl GpuContext {
     pub async fn new(window: Arc<Window>) -> anyhow::Result<Self> {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::METAL,
+            backends: wgpu::Backends::PRIMARY,
             ..Default::default()
         });
         let surface = instance.create_surface(window.clone())?;

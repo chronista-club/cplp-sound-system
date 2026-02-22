@@ -42,7 +42,16 @@ impl TextInput {
 
     pub fn set_text(&mut self, s: &str) {
         self.text = s.to_string();
-        self.cursor = self.text.len();
+        self.cursor = self.text.chars().count();
+    }
+
+    /// カーソル位置（文字数）をバイトオフセットに変換
+    fn cursor_byte_offset(&self) -> usize {
+        self.text
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(i, _)| i)
+            .unwrap_or(self.text.len())
     }
 }
 
@@ -102,13 +111,15 @@ impl Widget for TextInput {
             UiEvent::KeyDown(key) if self.focused => {
                 match key {
                     Key::Char(c) => {
-                        self.text.insert(self.cursor, *c);
+                        let byte_pos = self.cursor_byte_offset();
+                        self.text.insert(byte_pos, *c);
                         self.cursor += 1;
                     }
                     Key::Backspace => {
                         if self.cursor > 0 {
                             self.cursor -= 1;
-                            self.text.remove(self.cursor);
+                            let byte_pos = self.cursor_byte_offset();
+                            self.text.remove(byte_pos);
                         }
                     }
                     Key::Left => {
@@ -117,7 +128,7 @@ impl Widget for TextInput {
                         }
                     }
                     Key::Right => {
-                        if self.cursor < self.text.len() {
+                        if self.cursor < self.text.chars().count() {
                             self.cursor += 1;
                         }
                     }

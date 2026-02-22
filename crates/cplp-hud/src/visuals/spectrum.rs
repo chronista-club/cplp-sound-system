@@ -13,18 +13,16 @@ pub struct Spectrum {
     fft_buffer: Vec<Complex<f32>>,
     pub(crate) magnitudes: Vec<f32>,
     pub(crate) smoothed: Vec<f32>,
-    label: String,
     color: Color,
 }
 
 impl Spectrum {
-    pub fn new(label: &str, color: Color) -> Self {
+    pub fn new(color: Color) -> Self {
         Self {
             planner: FftPlanner::new(),
             fft_buffer: vec![Complex::new(0.0, 0.0); FFT_SIZE],
             magnitudes: vec![0.0; NUM_BANDS],
             smoothed: vec![0.0; NUM_BANDS],
-            label: label.to_string(),
             color,
         }
     }
@@ -141,7 +139,6 @@ mod tests {
     #[test]
     fn spectrum_update_with_silence() {
         let mut spec = Spectrum::new(
-            "Test",
             Color {
                 r: 0.2,
                 g: 0.8,
@@ -160,7 +157,6 @@ mod tests {
     #[test]
     fn spectrum_update_with_tone() {
         let mut spec = Spectrum::new(
-            "Test",
             Color {
                 r: 0.2,
                 g: 0.8,

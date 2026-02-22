@@ -11,6 +11,12 @@ pub struct ConnectionIndicator {
     pub(crate) snapshot: SessionSnapshot,
 }
 
+impl Default for ConnectionIndicator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ConnectionIndicator {
     pub fn new() -> Self {
         Self {

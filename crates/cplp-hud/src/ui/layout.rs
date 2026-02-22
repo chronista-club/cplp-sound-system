@@ -7,12 +7,14 @@ use super::event::{UiEvent, EventResponse};
 pub struct VStack {
     pub spacing: f32,
     pub children: Vec<Box<dyn Widget>>,
+    child_sizes: Vec<Vec2>,
 }
 
 /// 子ウィジェットを水平方向に並べるレイアウト
 pub struct HStack {
     pub spacing: f32,
     pub children: Vec<Box<dyn Widget>>,
+    child_sizes: Vec<Vec2>,
 }
 
 /// 子ウィジェットにパディングを付与するラッパー
@@ -37,8 +39,10 @@ impl Widget for VStack {
         let mut max_w: f32 = 0.0;
         let mut total_h: f32 = 0.0;
 
+        self.child_sizes.clear();
         for (i, child) in self.children.iter_mut().enumerate() {
             let child_size = child.measure(available);
+            self.child_sizes.push(child_size);
             max_w = max_w.max(child_size.x);
             total_h += child_size.y;
             if i > 0 {
@@ -52,32 +56,34 @@ impl Widget for VStack {
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
         let mut y_offset = rect.y;
 
-        for child in &self.children {
+        for (i, child) in self.children.iter().enumerate() {
+            let h = self.child_sizes.get(i).map(|s| s.y).unwrap_or(0.0);
             let child_rect = Rect {
                 x: rect.x,
                 y: y_offset,
                 w: rect.w,
-                h: 0.0,
+                h,
             };
             child.draw(renderer, child_rect);
-            y_offset += self.spacing;
+            y_offset += h + self.spacing;
         }
     }
 
     fn event(&mut self, event: &UiEvent, rect: Rect) -> EventResponse {
         let mut y_offset = rect.y;
 
-        for child in self.children.iter_mut() {
+        for (i, child) in self.children.iter_mut().enumerate() {
+            let h = self.child_sizes.get(i).map(|s| s.y).unwrap_or(0.0);
             let child_rect = Rect {
                 x: rect.x,
                 y: y_offset,
                 w: rect.w,
-                h: 0.0,
+                h,
             };
             if let EventResponse::Consumed = child.event(event, child_rect) {
                 return EventResponse::Consumed;
             }
-            y_offset += self.spacing;
+            y_offset += h + self.spacing;
         }
 
         EventResponse::Ignored
@@ -91,8 +97,10 @@ impl Widget for HStack {
         let mut total_w: f32 = 0.0;
         let mut max_h: f32 = 0.0;
 
+        self.child_sizes.clear();
         for (i, child) in self.children.iter_mut().enumerate() {
             let child_size = child.measure(available);
+            self.child_sizes.push(child_size);
             total_w += child_size.x;
             max_h = max_h.max(child_size.y);
             if i > 0 {
@@ -106,32 +114,34 @@ impl Widget for HStack {
     fn draw(&self, renderer: &mut Renderer, rect: Rect) {
         let mut x_offset = rect.x;
 
-        for child in &self.children {
+        for (i, child) in self.children.iter().enumerate() {
+            let w = self.child_sizes.get(i).map(|s| s.x).unwrap_or(0.0);
             let child_rect = Rect {
                 x: x_offset,
                 y: rect.y,
-                w: 0.0,
+                w,
                 h: rect.h,
             };
             child.draw(renderer, child_rect);
-            x_offset += self.spacing;
+            x_offset += w + self.spacing;
         }
     }
 
     fn event(&mut self, event: &UiEvent, rect: Rect) -> EventResponse {
         let mut x_offset = rect.x;
 
-        for child in self.children.iter_mut() {
+        for (i, child) in self.children.iter_mut().enumerate() {
+            let w = self.child_sizes.get(i).map(|s| s.x).unwrap_or(0.0);
             let child_rect = Rect {
                 x: x_offset,
                 y: rect.y,
-                w: 0.0,
+                w,
                 h: rect.h,
             };
             if let EventResponse::Consumed = child.event(event, child_rect) {
                 return EventResponse::Consumed;
             }
-            x_offset += self.spacing;
+            x_offset += w + self.spacing;
         }
 
         EventResponse::Ignored
@@ -224,6 +234,7 @@ mod tests {
     fn vstack_layout_sizes() {
         let mut stack = VStack {
             spacing: 10.0,
+            child_sizes: Vec::new(),
             children: vec![
                 Box::new(DummyWidget {
                     size: Vec2 { x: 100.0, y: 50.0 },
@@ -242,6 +253,7 @@ mod tests {
     fn hstack_layout_sizes() {
         let mut stack = HStack {
             spacing: 10.0,
+            child_sizes: Vec::new(),
             children: vec![
                 Box::new(DummyWidget {
                     size: Vec2 { x: 100.0, y: 50.0 },
