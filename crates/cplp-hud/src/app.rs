@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -8,7 +9,7 @@ use winit::window::{Window, WindowId};
 use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
 use crate::renderer::Renderer;
-use crate::state::SessionSnapshot;
+use crate::state::{AudioMeters, SessionSnapshot};
 use crate::ui::button::Button;
 use crate::ui::event::{from_window_event, EventResponse, UiEvent};
 use crate::ui::list::List;
@@ -18,6 +19,7 @@ use crate::ui::widget::Widget;
 use crate::visuals::connection::ConnectionIndicator;
 use crate::visuals::meters::LevelMeter;
 use crate::visuals::waveform::Waveform;
+use crate::HudContext;
 
 // ── 画面遷移アクション ──────────────────────────────
 
@@ -287,14 +289,13 @@ impl LiveScreen {
         }
     }
 
-    pub fn update(&mut self, frame_count: u64) {
-        // ダミーレベルデータ
+    /// デモモード: ダミーデータで更新
+    pub fn update_demo(&mut self, frame_count: u64) {
         let local_level = (frame_count as f32 * 0.03).sin().abs() * 0.8 + 0.1;
         let remote_level = (frame_count as f32 * 0.025 + 1.0).sin().abs() * 0.7 + 0.15;
         self.local_meter.update(local_level);
         self.remote_meter.update(remote_level);
 
-        // ダミーウェーブフォームデータ
         let local_samples: Vec<f32> = (0..256)
             .map(|i| (i as f32 * 0.05 + frame_count as f32 * 0.02).sin() * 0.6)
             .collect();
@@ -304,7 +305,6 @@ impl LiveScreen {
         self.local_waveform.update(&local_samples);
         self.remote_waveform.update(&remote_samples);
 
-        // ダミー接続情報
         self.connection.update(&SessionSnapshot {
             peer_name: "Player B".into(),
             connected: true,
@@ -312,6 +312,26 @@ impl LiveScreen {
             jitter_ms: 1.2,
             ..Default::default()
         });
+    }
+
+    /// リアルデータモード: AudioMeters + SessionSnapshot から更新
+    pub fn update_live(&mut self, frame_count: u64, meters: &AudioMeters, snapshot: &SessionSnapshot) {
+        let local_level = meters.local_level.load(Relaxed);
+        let remote_level = meters.remote_level.load(Relaxed);
+        self.local_meter.update(local_level);
+        self.remote_meter.update(remote_level);
+
+        // ウェーブフォーム: レベルに連動したダミー波形（PCM ringbuf 接続は次フェーズ）
+        let local_samples: Vec<f32> = (0..256)
+            .map(|i| (i as f32 * 0.05 + frame_count as f32 * 0.02).sin() * local_level)
+            .collect();
+        let remote_samples: Vec<f32> = (0..256)
+            .map(|i| (i as f32 * 0.07 + frame_count as f32 * 0.015).sin() * remote_level)
+            .collect();
+        self.local_waveform.update(&local_samples);
+        self.remote_waveform.update(&remote_samples);
+
+        self.connection.update(snapshot);
     }
 
     pub fn draw(&self, renderer: &mut Renderer) {
@@ -382,16 +402,18 @@ struct App {
     screen: Screen,
     cursor_pos: Vec2,
     frame_count: u64,
+    ctx: Option<HudContext>,
 }
 
 impl App {
-    fn new() -> Self {
+    fn new(ctx: Option<HudContext>) -> Self {
         Self {
             window: None,
             renderer: None,
             screen: Screen::Setup(SetupScreen::new()),
             cursor_pos: Vec2 { x: 0.0, y: 0.0 },
             frame_count: 0,
+            ctx,
         }
     }
 
@@ -462,7 +484,12 @@ impl ApplicationHandler for App {
                         }
                     }
                     Screen::Live(s) => {
-                        s.update(self.frame_count);
+                        if let Some(ctx) = &mut self.ctx {
+                            let snap = ctx.session.read().clone();
+                            s.update_live(self.frame_count, &ctx.meters, &snap);
+                        } else {
+                            s.update_demo(self.frame_count);
+                        }
                         s.draw(renderer);
                         ScreenAction::None
                     }
@@ -507,9 +534,18 @@ impl ApplicationHandler for App {
     }
 }
 
+/// デモモードで HUD を起動（外部データなし）
 pub fn run() -> anyhow::Result<()> {
     let event_loop = EventLoop::new()?;
-    let mut app = App::new();
+    let mut app = App::new(None);
+    event_loop.run_app(&mut app)?;
+    Ok(())
+}
+
+/// リアルデータモードで HUD を起動
+pub fn run_with_context(ctx: HudContext) -> anyhow::Result<()> {
+    let event_loop = EventLoop::new()?;
+    let mut app = App::new(Some(ctx));
     event_loop.run_app(&mut app)?;
     Ok(())
 }
