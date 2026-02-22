@@ -22,7 +22,10 @@ fn command_roundtrip_via_json() {
     let json = serde_json::to_string(&command).expect("Command のシリアライズに失敗");
 
     // JSON にプロトコル上必要なフィールドが含まれていることを確認
-    assert!(json.contains("\"type\":\"Command\""), "type タグが含まれるべき");
+    assert!(
+        json.contains("\"type\":\"Command\""),
+        "type タグが含まれるべき"
+    );
     assert!(json.contains("player-a"), "送信元 PeerId が含まれるべき");
     assert!(json.contains("Parse"), "CommandMode が含まれるべき");
     assert!(
@@ -245,8 +248,7 @@ fn command_roundtrip_via_json_value() {
 
     // Value 経由（ControlHandler::broadcast と同じパス）
     let value = serde_json::to_value(&command).expect("to_value に失敗");
-    let deserialized: ControlEvent =
-        serde_json::from_value(value).expect("from_value に失敗");
+    let deserialized: ControlEvent = serde_json::from_value(value).expect("from_value に失敗");
 
     match deserialized {
         ControlEvent::Command { from, mode, text } => {

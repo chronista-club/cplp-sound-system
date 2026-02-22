@@ -10,8 +10,8 @@ use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
 use cplp_hud::HudContext;
+use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
 use cplp_network::control::{CommandMode, ControlEvent};
 use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
 
@@ -291,15 +291,24 @@ fn main() -> anyhow::Result<()> {
                 midi,
                 hud,
             } => {
-                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let meters = if hud {
+                    Some(Arc::new(AudioMeters::default()))
+                } else {
+                    None
+                };
                 let (pcm_writer, pcm_output) = if hud {
                     let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
                     (Some(PcmWriter::new(input)), Some(output))
                 } else {
                     (None, None)
                 };
-                let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
+                let (mut engine, _synth_handle, _fx_handle, _midi_conn) = setup_session_audio(
+                    &plugin_id,
+                    fx.as_deref(),
+                    midi,
+                    meters.clone(),
+                    pcm_writer,
+                )?;
 
                 println!("ピアの接続を待機中 (port {port})...");
                 println!("(Ctrl+C で停止)");
@@ -313,7 +322,13 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(meters) = meters {
-                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Host)?;
+                    run_session_with_hud(
+                        &mut engine,
+                        meters,
+                        pcm_output.unwrap(),
+                        app_config,
+                        SessionMode::Host,
+                    )?;
                 } else {
                     run_session_blocking(&mut engine, app_config, SessionMode::Host)?;
                 }
@@ -327,15 +342,24 @@ fn main() -> anyhow::Result<()> {
                 hud,
             } => {
                 let peer_addr: SocketAddr = addr.parse()?;
-                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let meters = if hud {
+                    Some(Arc::new(AudioMeters::default()))
+                } else {
+                    None
+                };
                 let (pcm_writer, pcm_output) = if hud {
                     let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
                     (Some(PcmWriter::new(input)), Some(output))
                 } else {
                     (None, None)
                 };
-                let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
+                let (mut engine, _synth_handle, _fx_handle, _midi_conn) = setup_session_audio(
+                    &plugin_id,
+                    fx.as_deref(),
+                    midi,
+                    meters.clone(),
+                    pcm_writer,
+                )?;
 
                 println!("{} に接続中...", peer_addr);
                 println!("(Ctrl+C で停止)");
@@ -349,7 +373,13 @@ fn main() -> anyhow::Result<()> {
                 };
 
                 if let Some(meters) = meters {
-                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Join(peer_addr))?;
+                    run_session_with_hud(
+                        &mut engine,
+                        meters,
+                        pcm_output.unwrap(),
+                        app_config,
+                        SessionMode::Join(peer_addr),
+                    )?;
                 } else {
                     run_session_blocking(&mut engine, app_config, SessionMode::Join(peer_addr))?;
                 }
@@ -754,8 +784,7 @@ fn run_session_with_hud(
     app_config: AppConfig,
     mode: SessionMode,
 ) -> anyhow::Result<()> {
-    let (mut buf_input, buf_output) =
-        triple_buffer::triple_buffer(&SessionSnapshot::default());
+    let (mut buf_input, buf_output) = triple_buffer::triple_buffer(&SessionSnapshot::default());
 
     std::thread::spawn(move || {
         let rt = tokio::runtime::Runtime::new().expect("tokio runtime");

@@ -65,8 +65,7 @@ mod integration_tests {
     #[test]
     fn parse_then_sequence_integration() {
         // パーサーでコマンドをシーケンスに変換
-        let seq = parser::parse_command("C major 120bpm")
-            .expect("C major のパースに失敗");
+        let seq = parser::parse_command("C major 120bpm").expect("C major のパースに失敗");
         assert!((seq.tempo_bpm - 120.0).abs() < f32::EPSILON);
         assert!(!seq.events.is_empty());
         assert_eq!(seq.events[0].note, 60); // C4
@@ -134,23 +133,15 @@ mod integration_tests {
     #[test]
     fn stop_command_flow() {
         // まずスケールを演奏中にする
-        let scale_seq = parser::parse_command("C major 120bpm")
-            .expect("C major のパースに失敗");
+        let scale_seq = parser::parse_command("C major 120bpm").expect("C major のパースに失敗");
         let mut sequencer = MidiSequencer::new();
         sequencer.set_sequence(scale_seq);
         assert!(sequencer.is_playing(), "演奏中であるべき");
 
         // stop コマンドをパース
-        let stop_seq = parser::parse_command("stop")
-            .expect("stop のパースに失敗");
-        assert_eq!(
-            stop_seq.tempo_bpm, 0.0,
-            "stop はテンポ 0.0 を生成するべき"
-        );
-        assert!(
-            stop_seq.events.is_empty(),
-            "stop はイベントなしであるべき"
-        );
+        let stop_seq = parser::parse_command("stop").expect("stop のパースに失敗");
+        assert_eq!(stop_seq.tempo_bpm, 0.0, "stop はテンポ 0.0 を生成するべき");
+        assert!(stop_seq.events.is_empty(), "stop はイベントなしであるべき");
 
         // 停止シーケンスをセット → シーケンサーが停止
         sequencer.set_sequence(stop_seq);

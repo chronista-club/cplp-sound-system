@@ -78,7 +78,11 @@ impl MidiSequencer {
 
         let mut commands = Vec::new();
 
-        let effective_prev = if self.looping { prev_tick % duration } else { prev_tick };
+        let effective_prev = if self.looping {
+            prev_tick % duration
+        } else {
+            prev_tick
+        };
         let window_end = effective_prev + delta_ticks;
 
         // ループ巻き戻し: window が duration を跨ぐ場合、2 区間に分割
@@ -131,8 +135,18 @@ mod tests {
         MidiSequence {
             tempo_bpm: 120.0, // 120BPM = 960 ticks/sec
             events: vec![
-                MidiEvent { tick: 0, note: 60, velocity: 100, duration_ticks: 240 },
-                MidiEvent { tick: 480, note: 62, velocity: 100, duration_ticks: 240 },
+                MidiEvent {
+                    tick: 0,
+                    note: 60,
+                    velocity: 100,
+                    duration_ticks: 240,
+                },
+                MidiEvent {
+                    tick: 480,
+                    note: 62,
+                    velocity: 100,
+                    duration_ticks: 240,
+                },
             ],
         }
     }
@@ -165,7 +179,10 @@ mod tests {
         let cmds = seq.update(0.0); // init
         assert!(cmds.is_empty());
         let cmds = seq.update(0.01); // 0.01s later
-        assert!(cmds.iter().any(|c| matches!(c, NoteCommand::NoteOn { note: 60, .. })));
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, NoteCommand::NoteOn { note: 60, .. }))
+        );
     }
 
     #[test]
@@ -175,7 +192,10 @@ mod tests {
         seq.update(0.0);
         seq.update(0.01); // NoteOn at tick 0
         let cmds = seq.update(0.26); // ~240 ticks later = NoteOff
-        assert!(cmds.iter().any(|c| matches!(c, NoteCommand::NoteOff { note: 60 })));
+        assert!(
+            cmds.iter()
+                .any(|c| matches!(c, NoteCommand::NoteOff { note: 60 }))
+        );
     }
 
     #[test]

@@ -36,7 +36,9 @@ impl CadenceSession {
             .find(|p| p.id == *needle)
             .or_else(|| {
                 plugins.iter().find(|p| {
-                    p.name.to_ascii_lowercase().contains(&needle.to_ascii_lowercase())
+                    p.name
+                        .to_ascii_lowercase()
+                        .contains(&needle.to_ascii_lowercase())
                 })
             })
             .cloned();
@@ -104,10 +106,7 @@ impl CadenceSession {
 
         // 3. SessionManager でホスト開始
         let mut session = SessionManager::new(config);
-        println!(
-            "Cadence: ポート {} で待機中... (Ctrl+C で停止)",
-            self.port
-        );
+        println!("Cadence: ポート {} で待機中... (Ctrl+C で停止)", self.port);
 
         // host() は PeerConnected を待つ。接続されるまでブロックする。
         // 接続前に Ctrl+C が押された場合は tokio::signal で処理する。

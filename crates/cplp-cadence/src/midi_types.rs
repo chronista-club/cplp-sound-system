@@ -53,8 +53,18 @@ mod tests {
         let seq = MidiSequence {
             tempo_bpm: 122.0,
             events: vec![
-                MidiEvent { tick: 0, note: 60, velocity: 100, duration_ticks: 480 },
-                MidiEvent { tick: 480, note: 62, velocity: 100, duration_ticks: 960 },
+                MidiEvent {
+                    tick: 0,
+                    note: 60,
+                    velocity: 100,
+                    duration_ticks: 480,
+                },
+                MidiEvent {
+                    tick: 480,
+                    note: 62,
+                    velocity: 100,
+                    duration_ticks: 960,
+                },
             ],
         };
         assert_eq!(seq.duration_ticks(), 1440);

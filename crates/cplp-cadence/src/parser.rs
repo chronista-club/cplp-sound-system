@@ -102,12 +102,7 @@ pub fn scale_intervals(name: &str) -> Result<&'static [u8], ParseError> {
 }
 
 /// スケールの上昇＋下降シーケンスを構築する
-fn build_scale_sequence(
-    root: u8,
-    intervals: &[u8],
-    bpm: f32,
-    bars: u32,
-) -> MidiSequence {
+fn build_scale_sequence(root: u8, intervals: &[u8], bpm: f32, bars: u32) -> MidiSequence {
     let mut seq = MidiSequence::new(bpm);
 
     // 1小節 = 4拍 = 4 * TICKS_PER_QUARTER ticks
