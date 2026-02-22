@@ -5,21 +5,20 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
-use crate::renderer::pipeline::GpuContext;
-use crate::renderer::primitives::{Color, QuadPipeline, Rect};
+use crate::renderer::primitives::{Color, Rect, Vec2};
+use crate::renderer::text::TextEntry;
+use crate::renderer::Renderer;
 
 struct App {
     window: Option<Arc<Window>>,
-    gpu: Option<GpuContext>,
-    quads: Option<QuadPipeline>,
+    renderer: Option<Renderer>,
 }
 
 impl App {
     fn new() -> Self {
         Self {
             window: None,
-            gpu: None,
-            quads: None,
+            renderer: None,
         }
     }
 }
@@ -35,28 +34,27 @@ impl ApplicationHandler for App {
             .with_title("cplp")
             .with_inner_size(winit::dpi::LogicalSize::new(640.0, 480.0));
         let window = Arc::new(event_loop.create_window(attrs).expect("failed to create window"));
-        let gpu = pollster::block_on(GpuContext::new(window.clone()))
-            .expect("failed to initialize GPU context");
-        let quads = QuadPipeline::new(&gpu.device, gpu.config.format);
+        let renderer =
+            Renderer::new(window.clone()).expect("failed to initialize renderer");
         self.window = Some(window);
-        self.quads = Some(quads);
-        self.gpu = Some(gpu);
+        self.renderer = Some(renderer);
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(size) => {
-                if let Some(gpu) = &mut self.gpu {
-                    gpu.resize(size);
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size);
                 }
             }
             WindowEvent::RedrawRequested => {
-                let Some(gpu) = &self.gpu else { return };
-                let Some(quads) = &mut self.quads else { return };
+                let Some(renderer) = &mut self.renderer else {
+                    return;
+                };
 
-                quads.set_viewport(gpu.size.width as f32, gpu.size.height as f32);
-                quads.rect(
+                // Red rectangle
+                renderer.rect(
                     Rect {
                         x: 50.0,
                         y: 50.0,
@@ -70,40 +68,35 @@ impl ApplicationHandler for App {
                         a: 1.0,
                     },
                 );
-                quads.prepare(&gpu.device, &gpu.queue);
 
-                let output = match gpu.surface.get_current_texture() {
-                    Ok(t) => t,
-                    Err(wgpu::SurfaceError::Lost) => {
-                        gpu.surface.configure(&gpu.device, &gpu.config);
-                        return;
-                    }
-                    Err(_) => return,
-                };
-                let view = output.texture.create_view(&Default::default());
-                let mut encoder = gpu.device.create_command_encoder(&Default::default());
-                {
-                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color {
-                                    r: 0.05,
-                                    g: 0.05,
-                                    b: 0.08,
-                                    a: 1.0,
-                                }),
-                                store: wgpu::StoreOp::Store,
-                            },
-                            depth_slice: None,
-                        })],
-                        ..Default::default()
-                    });
-                    quads.render(&mut pass);
-                }
-                gpu.queue.submit(std::iter::once(encoder.finish()));
-                output.present();
+                // Green sine wave polyline
+                let points: Vec<Vec2> = (0..200)
+                    .map(|i| {
+                        let x = 50.0 + i as f32 * 2.7;
+                        let y = 250.0 + (i as f32 * 0.05).sin() * 40.0;
+                        Vec2 { x, y }
+                    })
+                    .collect();
+                renderer.polyline(
+                    &points,
+                    Color {
+                        r: 0.2,
+                        g: 0.9,
+                        b: 0.4,
+                        a: 1.0,
+                    },
+                );
+
+                // White text
+                renderer.text(TextEntry {
+                    text: "cplp — Renderer OK".into(),
+                    x: 50.0,
+                    y: 350.0,
+                    size: 24.0,
+                    color: [1.0, 1.0, 1.0, 1.0],
+                });
+
+                renderer.render_frame();
             }
             _ => {}
         }
