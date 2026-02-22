@@ -2,13 +2,17 @@ mod logging;
 
 use std::f32::consts::PI;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::Ordering::Relaxed;
 
 use clap::{Parser, Subcommand};
 use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_session::{LobbyClient, LobbyConfig, SessionManager};
+use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
+use cplp_hud::HudContext;
+use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
 
 #[derive(Parser)]
 #[command(name = "cplp")]
@@ -51,6 +55,8 @@ enum Command {
         #[command(subcommand)]
         cmd: DeviceCmd,
     },
+    /// HUD（ライブ演奏向け GUI）を起動
+    Hud,
 }
 
 /// セッションサブコマンド
@@ -69,6 +75,9 @@ enum SessionCmd {
         /// MIDI 入力ポート番号
         #[arg(short, long)]
         midi: Option<usize>,
+        /// HUD（ライブ演奏 GUI）を同時起動
+        #[arg(long)]
+        hud: bool,
     },
     /// P2P ピアに直接接続
     Connect {
@@ -85,6 +94,9 @@ enum SessionCmd {
         /// MIDI 入力ポート番号
         #[arg(short, long)]
         midi: Option<usize>,
+        /// HUD（ライブ演奏 GUI）を同時起動
+        #[arg(long)]
+        hud: bool,
     },
     /// ロビーサーバー経由でセッション管理
     Lobby {
@@ -276,43 +288,34 @@ fn main() -> anyhow::Result<()> {
                 plugin_id,
                 fx,
                 midi,
+                hud,
             } => {
+                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let (pcm_writer, pcm_output) = if hud {
+                    let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
+                    (Some(PcmWriter::new(input)), Some(output))
+                } else {
+                    (None, None)
+                };
                 let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
 
                 println!("ピアの接続を待機中 (port {port})...");
                 println!("(Ctrl+C で停止)");
 
-                let rt = tokio::runtime::Runtime::new()?;
-                rt.block_on(async {
-                    let app_config = AppConfig {
-                        audio: AudioConfig::default(),
-                        network: NetworkConfig {
-                            listen_port: port,
-                            ..Default::default()
-                        },
-                    };
-                    let mut session = SessionManager::new(app_config);
+                let app_config = AppConfig {
+                    audio: AudioConfig::default(),
+                    network: NetworkConfig {
+                        listen_port: port,
+                        ..Default::default()
+                    },
+                };
 
-                    tokio::select! {
-                        result = session.host() => {
-                            match result {
-                                Ok(_streamer) => {
-                                    println!("セッション開始！");
-                                    tokio::signal::ctrl_c().await.ok();
-                                }
-                                Err(e) => tracing::error!("セッションエラー: {}", e),
-                            }
-                        }
-                        _ = tokio::signal::ctrl_c() => {
-                            println!("\n停止中...");
-                        }
-                    }
-
-                    session.shutdown().await.ok();
-                });
-
-                engine.stop();
+                if let Some(meters) = meters {
+                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Host)?;
+                } else {
+                    run_session_blocking(&mut engine, app_config, SessionMode::Host)?;
+                }
             }
             SessionCmd::Connect {
                 addr,
@@ -320,50 +323,44 @@ fn main() -> anyhow::Result<()> {
                 plugin_id,
                 fx,
                 midi,
+                hud,
             } => {
                 let peer_addr: SocketAddr = addr.parse()?;
+                let meters = if hud { Some(Arc::new(AudioMeters::default())) } else { None };
+                let (pcm_writer, pcm_output) = if hud {
+                    let (input, output) = triple_buffer::triple_buffer(&PcmSnapshot::default());
+                    (Some(PcmWriter::new(input)), Some(output))
+                } else {
+                    (None, None)
+                };
                 let (mut engine, _synth_handle, _fx_handle, _midi_conn) =
-                    setup_session_audio(&plugin_id, fx.as_deref(), midi)?;
+                    setup_session_audio(&plugin_id, fx.as_deref(), midi, meters.clone(), pcm_writer)?;
 
                 println!("{} に接続中...", peer_addr);
                 println!("(Ctrl+C で停止)");
 
-                let rt = tokio::runtime::Runtime::new()?;
-                rt.block_on(async {
-                    let app_config = AppConfig {
-                        audio: AudioConfig::default(),
-                        network: NetworkConfig {
-                            listen_port: port,
-                            ..Default::default()
-                        },
-                    };
-                    let mut session = SessionManager::new(app_config);
+                let app_config = AppConfig {
+                    audio: AudioConfig::default(),
+                    network: NetworkConfig {
+                        listen_port: port,
+                        ..Default::default()
+                    },
+                };
 
-                    tokio::select! {
-                        result = session.join(peer_addr) => {
-                            match result {
-                                Ok(_streamer) => {
-                                    println!("セッション開始！");
-                                    tokio::signal::ctrl_c().await.ok();
-                                }
-                                Err(e) => tracing::error!("セッションエラー: {}", e),
-                            }
-                        }
-                        _ = tokio::signal::ctrl_c() => {
-                            println!("\n停止中...");
-                        }
-                    }
-
-                    session.shutdown().await.ok();
-                });
-
-                engine.stop();
+                if let Some(meters) = meters {
+                    run_session_with_hud(&mut engine, meters, pcm_output.unwrap(), app_config, SessionMode::Join(peer_addr))?;
+                } else {
+                    run_session_blocking(&mut engine, app_config, SessionMode::Join(peer_addr))?;
+                }
             }
             SessionCmd::Lobby { cmd: lobby_cmd } => {
                 let rt = tokio::runtime::Runtime::new()?;
                 rt.block_on(handle_lobby(lobby_cmd))?;
             }
         },
+        Command::Hud => {
+            cplp_hud::app::run()?;
+        }
         Command::Device { cmd: device_cmd } => match device_cmd {
             DeviceCmd::Scan => {
                 let plugins = plugin_host::scan_plugins();
@@ -626,6 +623,8 @@ fn setup_session_audio(
     plugin_id: &str,
     fx_id: Option<&str>,
     midi_port: Option<usize>,
+    meters: Option<Arc<AudioMeters>>,
+    pcm_writer: Option<PcmWriter>,
 ) -> anyhow::Result<(
     AudioEngine,
     plugin_host::PluginHandle,
@@ -664,19 +663,35 @@ fn setup_session_audio(
         (None, None)
     };
 
-    // AudioEngine 起動
+    // AudioEngine 起動（meters + PCM writer があれば callback 内で書き込む）
     let mut engine = AudioEngine::new(config.clone());
     if let Some(mut fx_processor) = fx_processor {
         let channels = config.channels as usize;
         let buf_size = config.buffer_size as usize * channels;
+        let m = meters.clone();
+        let mut pcm = pcm_writer;
         engine.start(move |buf: &mut [f32]| {
             let mut synth_out = vec![0.0f32; buf.len().max(buf_size)];
             synth_processor.process(&mut synth_out[..buf.len()]);
             fx_processor.process_effect(&synth_out[..buf.len()], buf);
+            if let Some(m) = &m {
+                write_meters(m, buf);
+            }
+            if let Some(pcm) = &mut pcm {
+                pcm.push(buf);
+            }
         })?;
     } else {
+        let m = meters;
+        let mut pcm = pcm_writer;
         engine.start(move |buf: &mut [f32]| {
             synth_processor.process(buf);
+            if let Some(m) = &m {
+                write_meters(m, buf);
+            }
+            if let Some(pcm) = &mut pcm {
+                pcm.push(buf);
+            }
         })?;
     }
 
@@ -690,6 +705,122 @@ fn setup_session_audio(
     };
 
     Ok((engine, synth_handle, fx_handle, midi_conn))
+}
+
+/// オーディオバッファから RMS レベルを計算し AudioMeters に書き込む
+fn write_meters(meters: &AudioMeters, buf: &[f32]) {
+    if buf.is_empty() {
+        return;
+    }
+    let sum: f32 = buf.iter().map(|s| s * s).sum();
+    let rms = (sum / buf.len() as f32).sqrt();
+    meters.local_level.store(rms, Relaxed);
+
+    let peak = buf.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+    meters.local_peak.store(peak, Relaxed);
+}
+
+/// SessionState を HUD 用の SessionSnapshot に変換
+fn session_state_to_snapshot(state: &SessionState) -> SessionSnapshot {
+    match state {
+        SessionState::Streaming => SessionSnapshot {
+            connected: true,
+            peer_name: "Peer".into(),
+            ..Default::default()
+        },
+        SessionState::Connected => SessionSnapshot {
+            connected: true,
+            peer_name: "Peer (connecting...)".into(),
+            ..Default::default()
+        },
+        _ => SessionSnapshot::default(),
+    }
+}
+
+/// セッション接続モード
+enum SessionMode {
+    /// ホスト（ピアの接続を待機）
+    Host,
+    /// ゲスト（指定アドレスに接続）
+    Join(SocketAddr),
+}
+
+/// HUD 付きでセッションを実行（メインスレッドで winit、バックグラウンドで tokio）
+fn run_session_with_hud(
+    engine: &mut AudioEngine,
+    meters: Arc<AudioMeters>,
+    local_pcm: triple_buffer::Output<PcmSnapshot>,
+    app_config: AppConfig,
+    mode: SessionMode,
+) -> anyhow::Result<()> {
+    let (mut buf_input, buf_output) =
+        triple_buffer::triple_buffer(&SessionSnapshot::default());
+
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+        rt.block_on(async move {
+            let mut session = SessionManager::new(app_config);
+            let state_rx = session.state_rx();
+
+            let _streamer = match mode {
+                SessionMode::Host => session.host().await,
+                SessionMode::Join(addr) => session.join(addr).await,
+            };
+
+            // セッション状態を TripleBuffer に転送し続ける
+            let mut watch = state_rx;
+            loop {
+                if watch.changed().await.is_err() {
+                    break;
+                }
+                let state = watch.borrow().clone();
+                buf_input.write(session_state_to_snapshot(&state));
+                if matches!(state, SessionState::Disconnected) {
+                    break;
+                }
+            }
+            session.shutdown().await.ok();
+        });
+    });
+
+    // HUD をメインスレッドで起動（winit 要件）
+    let ctx = HudContext {
+        meters,
+        session: buf_output,
+        local_pcm,
+    };
+    cplp_hud::app::run_with_context(ctx)?;
+    engine.stop();
+    Ok(())
+}
+
+/// HUD なしでセッションを実行（tokio ランタイムでブロック）
+fn run_session_blocking(
+    engine: &mut AudioEngine,
+    app_config: AppConfig,
+    mode: SessionMode,
+) -> anyhow::Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async {
+        let mut session = SessionManager::new(app_config);
+
+        let result = match mode {
+            SessionMode::Host => session.host().await,
+            SessionMode::Join(addr) => session.join(addr).await,
+        };
+
+        match result {
+            Ok(_streamer) => {
+                println!("セッション開始！");
+                let _ = tokio::signal::ctrl_c().await;
+            }
+            Err(e) => tracing::error!("セッションエラー: {}", e),
+        }
+
+        session.shutdown().await.ok();
+    });
+    engine.stop();
+    Ok(())
 }
 
 // ─── ステータス表示 ──────────────────────────────────────
