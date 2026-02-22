@@ -1,3 +1,6 @@
+mod midi_types;
+mod parser;
+
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
