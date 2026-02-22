@@ -54,6 +54,7 @@ glyphon = "0.10"
 atomic_float = "1"
 triple_buffer = "8"
 ringbuf = "0.4"
+rustfft = "6"
 bytemuck = { version = "1", features = ["derive"] }
 pollster = "0.4"
 

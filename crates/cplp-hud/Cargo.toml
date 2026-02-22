@@ -13,6 +13,7 @@ glyphon.workspace = true
 atomic_float.workspace = true
 triple_buffer.workspace = true
 ringbuf.workspace = true
+rustfft.workspace = true
 bytemuck.workspace = true
 pollster.workspace = true
 tracing.workspace = true
