@@ -2,8 +2,11 @@ mod midi_types;
 mod parser;
 mod router;
 mod sequencer;
+mod session;
 
 use clap::{Parser, Subcommand};
+
+use session::CadenceSession;
 
 #[derive(Parser)]
 #[command(name = "cadence")]
@@ -38,17 +41,26 @@ enum Command {
 }
 
 fn main() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+
     let cli = Cli::parse();
     match cli.cmd {
         Command::Listen { plugin_id, port } => {
-            println!("Cadence listen on :{port} with plugin {plugin_id}");
+            let session = CadenceSession::new(plugin_id, port);
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(session.run_listen())?;
         }
         Command::Connect {
             addr,
             plugin_id,
             port,
         } => {
-            println!("Cadence connect to {addr} from :{port} with plugin {plugin_id}");
+            let addr: std::net::SocketAddr = addr
+                .parse()
+                .map_err(|e| anyhow::anyhow!("アドレスのパースに失敗: {e}"))?;
+            let session = CadenceSession::new(plugin_id, port);
+            let rt = tokio::runtime::Runtime::new()?;
+            rt.block_on(session.run_connect(addr))?;
         }
         Command::Status => {
             println!("Cadence is not running");
