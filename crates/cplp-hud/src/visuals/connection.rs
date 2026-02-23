@@ -112,6 +112,45 @@ impl ConnectionIndicator {
             size: font_size,
             color: [lat_color.r, lat_color.g, lat_color.b, lat_color.a],
         });
+
+        // ロビー接続状態（レイテンシの左に表示、ロビー使用時のみ）
+        if !self.snapshot.lobby_url.is_empty() {
+            let lobby_dot_color = if self.snapshot.lobby_connected {
+                Color {
+                    r: 0.3,
+                    g: 0.7,
+                    b: 1.0,
+                    a: 1.0,
+                } // 青
+            } else {
+                Color {
+                    r: 0.5,
+                    g: 0.5,
+                    b: 0.5,
+                    a: 1.0,
+                } // グレー
+            };
+            let lobby_text = format!("● {}", self.snapshot.lobby_url);
+            let lobby_width = lobby_text.len() as f32 * theme::CHAR_W;
+            renderer.text(TextEntry {
+                text: lobby_text,
+                x: rect.x + rect.w
+                    - padding
+                    - jitter_width
+                    - padding
+                    - latency_width
+                    - padding
+                    - lobby_width,
+                y: text_y,
+                size: font_size,
+                color: [
+                    lobby_dot_color.r,
+                    lobby_dot_color.g,
+                    lobby_dot_color.b,
+                    lobby_dot_color.a,
+                ],
+            });
+        }
     }
 }
 

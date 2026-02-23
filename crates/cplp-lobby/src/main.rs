@@ -1,4 +1,4 @@
-use cplp_lobby::{AppState, LobbyMode, auth, create_router, db, jwt};
+use cplp_lobby::{AppState, LobbyMode, auth, create_router, db, jwt, mdns};
 use tokio::net::TcpListener;
 use tracing_subscriber::EnvFilter;
 
@@ -65,10 +65,26 @@ async fn main() -> anyhow::Result<()> {
 
     let app = create_router(state);
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "3000".to_string());
+    let port: u16 = std::env::var("PORT")
+        .unwrap_or_else(|_| "3000".to_string())
+        .parse()
+        .unwrap_or(3000);
     let bind_addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&bind_addr).await?;
     tracing::info!("cplp-lobby listening on {} (mode: {:?})", bind_addr, lobby_mode);
+
+    // mDNS 広告開始（_advertiser を保持してサーバー終了時に自動 Unregister）
+    let mode_str = match lobby_mode {
+        LobbyMode::Local => "local",
+        LobbyMode::Global => "global",
+    };
+    let _advertiser = match mdns::MdnsAdvertiser::start(port, mode_str) {
+        Ok(adv) => Some(adv),
+        Err(e) => {
+            tracing::warn!("mDNS 広告の開始に失敗（LAN 発見が無効）: {}", e);
+            None
+        }
+    };
 
     axum::serve(listener, app).await?;
 

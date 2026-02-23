@@ -118,6 +118,21 @@ enum LobbyCmd {
         #[arg(short, long, default_value_t = 3000)]
         port: u16,
     },
+    /// リモートロビーに接続テスト
+    #[command(name = "connect")]
+    LobbyConnect {
+        /// ロビーサーバー URL (例: http://192.168.1.10:3000)
+        url: String,
+        /// JWT トークン（省略時は dev トークン生成）
+        #[arg(long)]
+        token: Option<String>,
+    },
+    /// LAN 内のロビーサーバーを自動発見
+    Discover {
+        /// 発見タイムアウト (秒)
+        #[arg(short, long, default_value_t = 5)]
+        timeout: u64,
+    },
     /// グループ一覧を取得
     Groups {
         /// ロビーサーバー URL
@@ -497,6 +512,87 @@ async fn handle_lobby(cmd: LobbyCmd) -> anyhow::Result<()> {
                          または直接起動: LOBBY_MODE={mode} cargo run -p cplp-lobby"
                     );
                 }
+            }
+        }
+        LobbyCmd::LobbyConnect { url, token } => {
+            println!("ロビー接続テスト: {url}");
+
+            // 1. ヘルスチェック
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(5))
+                .build()?;
+
+            match client.get(format!("{}/health", url)).send().await {
+                Ok(resp) if resp.status().is_success() => {
+                    println!("  ✓ ヘルスチェック OK");
+                }
+                Ok(resp) => {
+                    anyhow::bail!(
+                        "ヘルスチェック失敗: HTTP {} ({})",
+                        resp.status(),
+                        url
+                    );
+                }
+                Err(e) => {
+                    if e.is_timeout() {
+                        anyhow::bail!("接続タイムアウト: {url} (5秒以内に応答なし)");
+                    } else if e.is_connect() {
+                        anyhow::bail!("接続拒否: {url} (サーバーが起動していない可能性があります)");
+                    } else {
+                        anyhow::bail!("接続エラー: {e}");
+                    }
+                }
+            }
+
+            // 2. グループ一覧取得
+            let token = resolve_token(token)?;
+            let lobby = LobbyClient::new(LobbyConfig {
+                base_url: url.clone(),
+                token,
+                local_addr: "[::1]:0".parse().unwrap(),
+            });
+
+            match lobby.list_groups().await {
+                Ok(groups) => {
+                    println!("  ✓ 認証 OK");
+                    if groups.is_empty() {
+                        println!("\n  グループなし（新規作成可能）");
+                    } else {
+                        println!("\n  {} 個のグループ:", groups.len());
+                        for g in &groups {
+                            println!("    {} — {}", g.id, g.name);
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("  ✗ グループ取得失敗: {e}");
+                    println!("    ヘルスチェックは通過したので、認証トークンを確認してください");
+                }
+            }
+
+            println!("\n接続先: {url}");
+        }
+        LobbyCmd::Discover { timeout } => {
+            println!(
+                "LAN 内のロビーサーバーを検索中 ({timeout}秒)..."
+            );
+
+            let lobbies = cplp_session::discover_lobbies(
+                std::time::Duration::from_secs(timeout),
+            )
+            .await?;
+
+            if lobbies.is_empty() {
+                println!("\nロビーサーバーが見つかりませんでした");
+                println!("ヒント: `cplp session lobby start` でローカルサーバーを起動してください");
+            } else {
+                println!("\n{} 個のロビーサーバーが見つかりました:\n", lobbies.len());
+                for lobby in &lobbies {
+                    println!("  {} (mode: {}, v{})", lobby.url, lobby.mode, lobby.version);
+                    println!("    名前: {}", lobby.name);
+                }
+                println!();
+                println!("接続テスト: cplp session lobby connect <URL>");
             }
         }
         LobbyCmd::Groups { url, token } => {
