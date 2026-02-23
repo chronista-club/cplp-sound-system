@@ -19,7 +19,7 @@ graph LR
         B_MIX --> B_OUT[スピーカー]
     end
 
-    A_MIX <-- "P2P 直接接続\n生PCM (f32)" --> B_MIX
+    A_MIX <-->|"P2P 直接接続\n生PCM (f32)"| B_MIX
 ```
 
 ---
