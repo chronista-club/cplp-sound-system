@@ -1730,6 +1730,7 @@ dependencies = [
  "cplp-core",
  "jsonwebtoken",
  "oauth2",
+ "reqwest",
  "serde",
  "serde_json",
  "surrealdb",

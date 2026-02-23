@@ -165,6 +165,23 @@ impl P2pManager {
         self.mixer_state.add_track(peer_id, TrackState::new(label));
     }
 
+    /// 全ピアの control チャネルを取り出す（一度だけ呼べる）
+    ///
+    /// Cadence がコマンド受信ループを起動する際に使用。
+    /// 取り出し後、各 PeerConnection の channels は None になる。
+    pub fn take_control_channels(&mut self) -> Vec<(PeerId, UnisonChannel)> {
+        let mut result = Vec::new();
+        for (peer_id, conn) in &mut self.peers {
+            if let Some(channels) = conn.channels.take() {
+                result.push((peer_id.clone(), channels.control));
+                // NOTE: audio チャネルも失われるが、現時点では start_session() が
+                // チャネルを使用していないため問題ない。
+                // 将来 audio チャネルが必要になったら PeerChannels の分割を検討する。
+            }
+        }
+        result
+    }
+
     /// ピアを削除（接続情報 + ミキサートラック）
     pub fn remove_peer(&mut self, peer_id: &PeerId) {
         self.peers.remove(peer_id);

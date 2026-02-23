@@ -277,6 +277,10 @@ impl SessionManager {
         &self.p2p
     }
 
+    pub fn p2p_mut(&mut self) -> &mut P2pManager {
+        &mut self.p2p
+    }
+
     pub fn control(&self) -> &ControlHandler {
         &self.control
     }
