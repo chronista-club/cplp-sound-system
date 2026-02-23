@@ -44,7 +44,9 @@ impl CadenceSession {
         };
 
         if llm_provider.is_none() {
-            warn!("LLM プロバイダ未設定: Ask モードは無効です (ANTHROPIC_API_KEY または CLAUDE_CODE_OAUTH_TOKEN が必要)");
+            warn!(
+                "LLM プロバイダ未設定: Ask モードは無効です (ANTHROPIC_API_KEY または CLAUDE_CODE_OAUTH_TOKEN が必要)"
+            );
         }
 
         Self {
@@ -263,10 +265,7 @@ impl CadenceSession {
                                 }
                                 Ok(_) => {} // Command 以外は無視
                                 Err(e) => {
-                                    warn!(
-                                        "control イベントのパース失敗 from {}: {}",
-                                        peer_id, e
-                                    );
+                                    warn!("control イベントのパース失敗 from {}: {}", peer_id, e);
                                 }
                             }
                         }
@@ -425,7 +424,10 @@ mod tests {
 
         assert!(!sequencer.is_playing());
         CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl, None).await;
-        assert!(sequencer.is_playing(), "Parse モードでシーケンスがセットされるべき");
+        assert!(
+            sequencer.is_playing(),
+            "Parse モードでシーケンスがセットされるべき"
+        );
     }
 
     #[tokio::test]
@@ -486,10 +488,7 @@ mod tests {
             text: "A minor 90bpm".into(),
         };
         CadenceSession::handle_command(event2, &mut sequencer, &mut note_ctrl, None).await;
-        assert!(
-            sequencer.is_playing(),
-            "新しいシーケンスで上書きされるべき"
-        );
+        assert!(sequencer.is_playing(), "新しいシーケンスで上書きされるべき");
     }
 
     #[tokio::test]

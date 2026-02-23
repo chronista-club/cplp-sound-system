@@ -527,11 +527,7 @@ async fn handle_lobby(cmd: LobbyCmd) -> anyhow::Result<()> {
                     println!("  ✓ ヘルスチェック OK");
                 }
                 Ok(resp) => {
-                    anyhow::bail!(
-                        "ヘルスチェック失敗: HTTP {} ({})",
-                        resp.status(),
-                        url
-                    );
+                    anyhow::bail!("ヘルスチェック失敗: HTTP {} ({})", resp.status(), url);
                 }
                 Err(e) => {
                     if e.is_timeout() {
@@ -573,14 +569,10 @@ async fn handle_lobby(cmd: LobbyCmd) -> anyhow::Result<()> {
             println!("\n接続先: {url}");
         }
         LobbyCmd::Discover { timeout } => {
-            println!(
-                "LAN 内のロビーサーバーを検索中 ({timeout}秒)..."
-            );
+            println!("LAN 内のロビーサーバーを検索中 ({timeout}秒)...");
 
-            let lobbies = cplp_session::discover_lobbies(
-                std::time::Duration::from_secs(timeout),
-            )
-            .await?;
+            let lobbies =
+                cplp_session::discover_lobbies(std::time::Duration::from_secs(timeout)).await?;
 
             if lobbies.is_empty() {
                 println!("\nロビーサーバーが見つかりませんでした");
