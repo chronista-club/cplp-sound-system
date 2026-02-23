@@ -1,4 +1,4 @@
-use anyhow::{bail, Context};
+use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
@@ -102,8 +102,7 @@ impl ClaudeProvider {
             let json_start = start + "```json".len();
             if let Some(end) = text[json_start..].find("```") {
                 let json_str = text[json_start..json_start + end].trim();
-                return serde_json::from_str(json_str)
-                    .context("JSON ブロックのパースに失敗");
+                return serde_json::from_str(json_str).context("JSON ブロックのパースに失敗");
             }
         }
 
@@ -117,8 +116,7 @@ impl ClaudeProvider {
         if let Some(start) = text.find('{') {
             if let Some(end) = text.rfind('}') {
                 let json_str = &text[start..=end];
-                return serde_json::from_str(json_str)
-                    .context("埋め込み JSON のパースに失敗");
+                return serde_json::from_str(json_str).context("埋め込み JSON のパースに失敗");
             }
         }
 
@@ -251,8 +249,7 @@ This plays a C note."#;
 
     #[test]
     fn extract_json_raw() {
-        let text =
-            r#"{"tempo_bpm": 90.0, "events": [{"tick": 0, "note": 69, "velocity": 80, "duration_ticks": 240}]}"#;
+        let text = r#"{"tempo_bpm": 90.0, "events": [{"tick": 0, "note": 69, "velocity": 80, "duration_ticks": 240}]}"#;
 
         let seq = ClaudeProvider::extract_json(text).unwrap();
         assert!((seq.tempo_bpm - 90.0).abs() < f32::EPSILON);

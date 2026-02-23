@@ -174,11 +174,7 @@ impl SignalFlowGraph {
             AudioEdge {
                 from: 4,
                 to: 7,
-                level: if session.connected {
-                    local_level
-                } else {
-                    0.0
-                },
+                level: if session.connected { local_level } else { 0.0 },
             },
         ];
 
@@ -438,8 +434,8 @@ fn layout_nodes_default(graph: &AudioGraphState, w: f32, h: f32, out: &mut Vec<N
     let title_offset = 50.0 * s;
     let usable_h = h - title_offset - pad;
     let rows_per_col = 3usize;
-    let row_gap = ((usable_h - node_h * rows_per_col as f32) / (rows_per_col as f32 + 1.0))
-        .max(10.0 * s);
+    let row_gap =
+        ((usable_h - node_h * rows_per_col as f32) / (rows_per_col as f32 + 1.0)).max(10.0 * s);
 
     for (i, &(col, row)) in positions.iter().enumerate() {
         if i >= graph.nodes.len() {

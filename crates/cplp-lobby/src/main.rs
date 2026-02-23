@@ -71,7 +71,11 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or(3000);
     let bind_addr = format!("0.0.0.0:{port}");
     let listener = TcpListener::bind(&bind_addr).await?;
-    tracing::info!("cplp-lobby listening on {} (mode: {:?})", bind_addr, lobby_mode);
+    tracing::info!(
+        "cplp-lobby listening on {} (mode: {:?})",
+        bind_addr,
+        lobby_mode
+    );
 
     // mDNS 広告開始（_advertiser を保持してサーバー終了時に自動 Unregister）
     let mode_str = match lobby_mode {

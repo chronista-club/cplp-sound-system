@@ -11,7 +11,9 @@ use tracing_subscriber::util::SubscriberInitExt;
 /// `CPLP_LOG` プリセットをフィルタ文字列に変換
 fn preset_to_filter(preset: &str) -> &str {
     match preset {
-        "dev" => "debug,cplp_audio=trace,cosmic_text=warn,naga=warn,wgpu_core=warn,wgpu_hal=warn,winit=warn",
+        "dev" => {
+            "debug,cplp_audio=trace,cosmic_text=warn,naga=warn,wgpu_core=warn,wgpu_hal=warn,winit=warn"
+        }
         "audio" => "info,cplp_audio=trace,cplp_audio::engine=trace",
         "network" => "info,cplp_network=debug,cplp_session=debug",
         "production" => "warn",

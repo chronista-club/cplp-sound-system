@@ -107,11 +107,22 @@ impl Synthesizer {
     }
 
     /// エンベロープの現在のゲインを計算し、状態を進める
-    fn advance_envelope(env: &mut EnvelopeState, dt: f32, attack: f32, decay: f32, sustain: f32, release: f32) -> f32 {
+    fn advance_envelope(
+        env: &mut EnvelopeState,
+        dt: f32,
+        attack: f32,
+        decay: f32,
+        sustain: f32,
+        release: f32,
+    ) -> f32 {
         match env {
             EnvelopeState::Idle => 0.0,
             EnvelopeState::Attack(t) => {
-                let gain = if attack > 0.0 { (*t / attack).min(1.0) } else { 1.0 };
+                let gain = if attack > 0.0 {
+                    (*t / attack).min(1.0)
+                } else {
+                    1.0
+                };
                 *t += dt;
                 if *t >= attack {
                     *env = EnvelopeState::Decay(0.0);
@@ -119,7 +130,11 @@ impl Synthesizer {
                 gain
             }
             EnvelopeState::Decay(t) => {
-                let progress = if decay > 0.0 { (*t / decay).min(1.0) } else { 1.0 };
+                let progress = if decay > 0.0 {
+                    (*t / decay).min(1.0)
+                } else {
+                    1.0
+                };
                 let gain = 1.0 - (1.0 - sustain) * progress;
                 *t += dt;
                 if *t >= decay {
@@ -129,7 +144,11 @@ impl Synthesizer {
             }
             EnvelopeState::Sustain => sustain,
             EnvelopeState::Release(t) => {
-                let progress = if release > 0.0 { (*t / release).min(1.0) } else { 1.0 };
+                let progress = if release > 0.0 {
+                    (*t / release).min(1.0)
+                } else {
+                    1.0
+                };
                 let gain = sustain * (1.0 - progress);
                 *t += dt;
                 if *t >= release {
