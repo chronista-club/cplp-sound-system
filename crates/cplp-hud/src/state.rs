@@ -81,6 +81,10 @@ pub struct SessionSnapshot {
     pub remote_plugin: String,
     pub mix_local: f32,
     pub mix_remote: f32,
+    /// 接続先ロビー URL (空文字列 = ロビー未使用)
+    pub lobby_url: String,
+    /// ロビー接続状態
+    pub lobby_connected: bool,
 }
 
 #[cfg(test)]
@@ -126,6 +130,7 @@ mod tests {
             remote_plugin: "Vital".into(),
             mix_local: 0.7,
             mix_remote: 0.3,
+            ..Default::default()
         });
         let snap = output.read();
         assert_eq!(snap.peer_name, "Player B");

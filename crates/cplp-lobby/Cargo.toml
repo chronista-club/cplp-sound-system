@@ -25,6 +25,8 @@ jsonwebtoken.workspace = true
 uuid.workspace = true
 axum-extra.workspace = true
 reqwest.workspace = true
+mdns-sd.workspace = true
+hostname = "0.4"
 
 [dev-dependencies]
 axum-test = "18"
