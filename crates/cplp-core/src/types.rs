@@ -238,6 +238,78 @@ impl Default for MixerState {
     }
 }
 
+// ─── 信号フローグラフ型定義 ──────────────────────────────
+
+/// 信号フローグラフのノード種別
+#[derive(Debug, Clone)]
+pub enum AudioNodeKind {
+    MidiInput,
+    Synth { plugin_name: String },
+    BeatMachine,
+    Looper,
+    Mixer,
+    NetworkSend,
+    NetworkRecv,
+    AudioOutput,
+}
+
+impl AudioNodeKind {
+    /// 表示用ラベル
+    pub fn label(&self) -> String {
+        match self {
+            Self::MidiInput => "MIDI In".into(),
+            Self::Synth { plugin_name } => {
+                if plugin_name.is_empty() {
+                    "Synth".into()
+                } else {
+                    plugin_name.clone()
+                }
+            }
+            Self::BeatMachine => "Beat".into(),
+            Self::Looper => "Looper".into(),
+            Self::Mixer => "Mixer".into(),
+            Self::NetworkSend => "Net Send".into(),
+            Self::NetworkRecv => "Net Recv".into(),
+            Self::AudioOutput => "Output".into(),
+        }
+    }
+}
+
+/// ノードの状態
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeActivity {
+    Inactive,
+    Active,
+    Error,
+}
+
+/// グラフ内の 1 ノード
+#[derive(Debug, Clone)]
+pub struct AudioNode {
+    pub kind: AudioNodeKind,
+    pub activity: NodeActivity,
+    /// 0.0–1.0 信号レベル
+    pub level: f32,
+}
+
+/// ノード間の接続
+#[derive(Debug, Clone)]
+pub struct AudioEdge {
+    /// nodes[] のインデックス
+    pub from: usize,
+    /// nodes[] のインデックス
+    pub to: usize,
+    /// 接続上の信号レベル（色の強さ）
+    pub level: f32,
+}
+
+/// 信号フローグラフ全体の状態
+#[derive(Debug, Clone, Default)]
+pub struct AudioGraphState {
+    pub nodes: Vec<AudioNode>,
+    pub edges: Vec<AudioEdge>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -11,7 +11,7 @@ use crate::renderer::primitives::{Color, Rect, Vec2};
 use crate::renderer::text::TextEntry;
 use crate::state::{AudioMeters, SessionSnapshot};
 use crate::ui::button::Button;
-use crate::ui::event::{EventResponse, UiEvent, from_window_event};
+use crate::ui::event::{EventResponse, Key, UiEvent, from_window_event};
 use crate::ui::list::List;
 use crate::ui::slider::Slider;
 use crate::ui::text_input::TextInput;
@@ -19,6 +19,7 @@ use crate::ui::theme;
 use crate::ui::widget::Widget;
 use crate::visuals::connection::ConnectionIndicator;
 use crate::visuals::meters::LevelMeter;
+use crate::visuals::signal_flow::SignalFlowGraph;
 use crate::visuals::spectrum::Spectrum;
 use crate::visuals::waveform::Waveform;
 use crate::{HudAction, HudBridge, HudContext, app_status};
@@ -32,6 +33,8 @@ pub enum ScreenAction {
     GoToSetup,
     GoToLoading,
     GoToSetupWithError(String),
+    GoToSignalFlow,
+    GoToLiveFromFlow,
 }
 
 // ── Screen 列挙型 ────────────────────────────────────
@@ -41,6 +44,7 @@ pub enum Screen {
     Connecting(ConnectingScreen),
     Loading(LoadingScreen),
     Live(Box<LiveScreen>),
+    SignalFlow(Box<SignalFlowScreen>),
 }
 
 // ── SetupScreen ──────────────────────────────────────
@@ -753,6 +757,11 @@ impl LiveScreen {
     }
 
     pub fn event(&mut self, event: &UiEvent, w: f32, h: f32) -> ScreenAction {
+        // Tab キーで SignalFlow 画面に切替
+        if let UiEvent::KeyDown(Key::Tab) = event {
+            return ScreenAction::GoToSignalFlow;
+        }
+
         let l = Self::layout(w, h);
         self.mix_slider.event(event, l.mix_slider);
         ScreenAction::None
@@ -770,6 +779,117 @@ struct LiveLayout {
     mix_slider: Rect,
     pad: f32,
     bottom_y: f32,
+}
+
+// ── SignalFlowScreen ──────────────────────────────────
+
+pub struct SignalFlowScreen {
+    graph: SignalFlowGraph,
+    back_btn: Button,
+    flux_snapshot: cplp_flux::FluxSnapshot,
+}
+
+impl Default for SignalFlowScreen {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl SignalFlowScreen {
+    pub fn new() -> Self {
+        Self {
+            graph: SignalFlowGraph::new(),
+            back_btn: Button::new("← Live"),
+            flux_snapshot: cplp_flux::FluxSnapshot::default(),
+        }
+    }
+
+    pub fn update_flux(&mut self, snapshot: &cplp_flux::FluxSnapshot) {
+        self.flux_snapshot = snapshot.clone();
+    }
+
+    /// デモモード: ダミーデータで更新
+    pub fn update_demo(&mut self, frame_count: u64) {
+        // デモ用の FluxSnapshot を作成
+        let demo_flux = cplp_flux::FluxSnapshot {
+            bpm: 120.0,
+            synth_state: if frame_count % 120 < 80 {
+                cplp_flux::ModuleState::Playing
+            } else {
+                cplp_flux::ModuleState::Ready
+            },
+            beat_machine_state: if frame_count % 180 < 120 {
+                cplp_flux::ModuleState::Playing
+            } else {
+                cplp_flux::ModuleState::Off
+            },
+            looper_state: if frame_count % 240 < 60 {
+                cplp_flux::LooperState::Playing
+            } else {
+                cplp_flux::LooperState::Empty
+            },
+            active_plugin: Some("Surge XT".into()),
+        };
+        let demo_session = SessionSnapshot {
+            peer_name: "Player B".into(),
+            connected: true,
+            latency_ms: 8.5,
+            ..Default::default()
+        };
+        self.graph.build_graph(&demo_flux, None, &demo_session);
+    }
+
+    /// リアルデータモード
+    pub fn update_live(&mut self, meters: &AudioMeters, session: &SessionSnapshot) {
+        self.graph
+            .build_graph(&self.flux_snapshot, Some(meters), session);
+    }
+
+    fn back_btn_rect() -> Rect {
+        let s = theme::SCALE;
+        Rect {
+            x: 10.0 * s,
+            y: 10.0 * s,
+            w: 80.0 * s,
+            h: theme::BUTTON_H,
+        }
+    }
+
+    pub fn draw(&mut self, renderer: &mut Renderer, w: f32, h: f32) {
+        // レイアウト計算
+        self.graph.layout_nodes(w, h);
+
+        // タイトル
+        let s = theme::SCALE;
+        renderer.text(TextEntry {
+            text: "Signal Flow".into(),
+            x: 100.0 * s,
+            y: 14.0 * s,
+            size: theme::TEXT_LG,
+            color: theme::ACCENT,
+        });
+
+        // 戻るボタン
+        self.back_btn.draw(renderer, Self::back_btn_rect());
+
+        // グラフ描画
+        self.graph.draw(renderer);
+    }
+
+    pub fn event(&mut self, event: &UiEvent) -> ScreenAction {
+        // Tab キーで Live 画面に戻る
+        if let UiEvent::KeyDown(Key::Tab) = event {
+            return ScreenAction::GoToLiveFromFlow;
+        }
+
+        // 戻るボタン
+        let resp = self.back_btn.event(event, Self::back_btn_rect());
+        if matches!(event, UiEvent::MouseUp(_, _)) && resp == EventResponse::Consumed {
+            return ScreenAction::GoToLiveFromFlow;
+        }
+
+        ScreenAction::None
+    }
 }
 
 // ── App 構造体 ───────────────────────────────────────
@@ -871,6 +991,12 @@ impl App {
                     self.screen = Screen::Setup(Box::default());
                 }
             }
+            ScreenAction::GoToSignalFlow => {
+                self.screen = Screen::SignalFlow(Box::default());
+            }
+            ScreenAction::GoToLiveFromFlow => {
+                self.screen = Screen::Live(Box::default());
+            }
             ScreenAction::None => {}
         }
     }
@@ -914,8 +1040,11 @@ impl ApplicationHandler for App {
                 let gpu_size = renderer.gpu().size;
                 let (w, h) = (gpu_size.width as f32, gpu_size.height as f32);
 
-                // グロー設定: Live 画面のみ有効
-                renderer.set_glow_enabled(matches!(self.screen, Screen::Live(_)));
+                // グロー設定: Live / SignalFlow 画面で有効
+                renderer.set_glow_enabled(matches!(
+                    self.screen,
+                    Screen::Live(_) | Screen::SignalFlow(_)
+                ));
 
                 // 画面ごとの更新・描画
                 let action = match &mut self.screen {
@@ -969,6 +1098,35 @@ impl ApplicationHandler for App {
                         s.draw(renderer, w, h);
                         ScreenAction::None
                     }
+                    Screen::SignalFlow(s) => {
+                        // SignalFlow もデータソースは Live と同じ
+                        if let Some(ref mut bridge) = self.bridge {
+                            let flux_snap = bridge.flux.read().clone();
+                            s.update_flux(&flux_snap);
+
+                            if let Ok(mut guard) = bridge.live_data.lock() {
+                                if let Some(ref mut live) = *guard {
+                                    let snap = SessionSnapshot {
+                                        peer_name: "Local".into(),
+                                        connected: true,
+                                        ..Default::default()
+                                    };
+                                    s.update_live(&live.meters, &snap);
+                                } else {
+                                    s.update_demo(self.frame_count);
+                                }
+                            } else {
+                                s.update_demo(self.frame_count);
+                            }
+                        } else if let Some(ctx) = &mut self.ctx {
+                            let snap = ctx.session.read().clone();
+                            s.update_live(&ctx.meters, &snap);
+                        } else {
+                            s.update_demo(self.frame_count);
+                        }
+                        s.draw(renderer, w, h);
+                        ScreenAction::None
+                    }
                 };
 
                 self.frame_count += 1;
@@ -1007,6 +1165,7 @@ impl ApplicationHandler for App {
                         Screen::Connecting(s) => s.event(&ui_event),
                         Screen::Loading(s) => s.event(&ui_event),
                         Screen::Live(s) => s.event(&ui_event, w, h),
+                        Screen::SignalFlow(s) => s.event(&ui_event),
                     };
 
                     self.apply_action(action);
