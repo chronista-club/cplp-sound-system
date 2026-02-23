@@ -1,11 +1,13 @@
+use serde::Deserialize;
+
 /// MIDI シーケンス（パーサーまたは LLM の出力）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MidiSequence {
     pub tempo_bpm: f32,
     pub events: Vec<MidiEvent>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct MidiEvent {
     /// タイミング（ティック、4分音符 = 480 ticks）
     pub tick: u64,

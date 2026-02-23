@@ -1671,6 +1671,7 @@ dependencies = [
  "cplp-core",
  "cplp-network",
  "cplp-session",
+ "reqwest",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

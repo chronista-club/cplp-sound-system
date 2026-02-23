@@ -1,4 +1,6 @@
 #[allow(dead_code)]
+mod llm;
+#[allow(dead_code)]
 mod midi_types;
 #[allow(dead_code)]
 mod parser;

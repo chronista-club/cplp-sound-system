@@ -11,6 +11,7 @@ use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
 use cplp_network::control::{CommandMode, ControlEvent};
 use cplp_session::manager::SessionManager;
 
+use crate::llm::{AuthMethod, ClaudeProvider, LlmProvider};
 use crate::router::{self, RouteResult};
 use crate::sequencer::{MidiSequencer, NoteCommand};
 
@@ -18,11 +19,39 @@ use crate::sequencer::{MidiSequencer, NoteCommand};
 pub struct CadenceSession {
     plugin_id: String,
     port: u16,
+    llm_provider: Option<ClaudeProvider>,
 }
 
 impl CadenceSession {
     pub fn new(plugin_id: String, port: u16) -> Self {
-        Self { plugin_id, port }
+        // ANTHROPIC_API_KEY → CLAUDE_CODE_OAUTH_TOKEN の順でフォールバック
+        let llm_provider = if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+            if !key.is_empty() {
+                info!("LLM プロバイダ初期化: Claude API Key (Ask モード有効)");
+                Some(ClaudeProvider::new(AuthMethod::ApiKey(key)))
+            } else {
+                None
+            }
+        } else if let Ok(token) = std::env::var("CLAUDE_CODE_OAUTH_TOKEN") {
+            if !token.is_empty() {
+                info!("LLM プロバイダ初期化: Claude OAuth (Ask モード有効)");
+                Some(ClaudeProvider::new(AuthMethod::Bearer(token)))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if llm_provider.is_none() {
+            warn!("LLM プロバイダ未設定: Ask モードは無効です (ANTHROPIC_API_KEY または CLAUDE_CODE_OAUTH_TOKEN が必要)");
+        }
+
+        Self {
+            plugin_id,
+            port,
+            llm_provider,
+        }
     }
 
     /// インストール済みプラグインから ID/名前で検索
@@ -254,10 +283,11 @@ impl CadenceSession {
     }
 
     /// 受信した ControlEvent::Command を処理
-    fn handle_command(
+    async fn handle_command(
         event: ControlEvent,
         sequencer: &mut MidiSequencer,
         note_ctrl: &mut NoteController,
+        llm_provider: Option<&ClaudeProvider>,
     ) {
         if let ControlEvent::Command { from, mode, text } = event {
             let mode_str = match &mode {
@@ -277,8 +307,21 @@ impl CadenceSession {
                     info!("シーケンスをセット: {} イベント", event_count);
                 }
                 RouteResult::DelegateToLlm(text) => {
-                    info!("LLM 委譲（未実装）: {}", text);
-                    // D-2 で実装予定
+                    if let Some(llm) = llm_provider {
+                        match llm.generate_sequence(&text).await {
+                            Ok(seq) => {
+                                for n in 0..128u8 {
+                                    note_ctrl.note_off(n);
+                                }
+                                let count = seq.events.len();
+                                sequencer.set_sequence(seq);
+                                info!("LLM シーケンスをセット: {} イベント", count);
+                            }
+                            Err(e) => warn!("LLM エラー: {}", e),
+                        }
+                    } else {
+                        warn!("LLM プロバイダ未設定（ANTHROPIC_API_KEY が必要）");
+                    }
                 }
                 RouteResult::Error(e) => {
                     warn!("コマンドパースエラー: {}", e);
@@ -313,7 +356,7 @@ impl CadenceSession {
                     break;
                 }
                 Some(event) = command_rx.recv() => {
-                    Self::handle_command(event, &mut sequencer, &mut note_ctrl);
+                    Self::handle_command(event, &mut sequencer, &mut note_ctrl, self.llm_provider.as_ref()).await;
                 }
                 _ = tokio::time::sleep(tokio::time::Duration::from_millis(1)) => {
                     let current_time = start.elapsed().as_secs_f64();
@@ -369,8 +412,8 @@ mod tests {
         assert_eq!(config.audio.sample_rate, 48_000);
     }
 
-    #[test]
-    fn handle_command_parse_mode_sets_sequence() {
+    #[tokio::test]
+    async fn handle_command_parse_mode_sets_sequence() {
         let mut sequencer = MidiSequencer::new();
         let mut note_ctrl = make_note_ctrl();
 
@@ -381,12 +424,12 @@ mod tests {
         };
 
         assert!(!sequencer.is_playing());
-        CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl);
+        CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl, None).await;
         assert!(sequencer.is_playing(), "Parse モードでシーケンスがセットされるべき");
     }
 
-    #[test]
-    fn handle_command_ask_mode_delegates() {
+    #[tokio::test]
+    async fn handle_command_ask_mode_without_provider() {
         let mut sequencer = MidiSequencer::new();
         let mut note_ctrl = make_note_ctrl();
 
@@ -396,16 +439,16 @@ mod tests {
             text: "ブルースっぽいバッキング弾いて".into(),
         };
 
-        CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl);
-        // Ask モードでは LLM 委譲のため、シーケンサーは変化しない
+        CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl, None).await;
+        // LLM プロバイダ未設定のため、シーケンサーは変化しない
         assert!(
             !sequencer.is_playing(),
-            "Ask モードではシーケンスがセットされないべき"
+            "LLM プロバイダ未設定時はシーケンスがセットされないべき"
         );
     }
 
-    #[test]
-    fn handle_command_parse_error() {
+    #[tokio::test]
+    async fn handle_command_parse_error() {
         let mut sequencer = MidiSequencer::new();
         let mut note_ctrl = make_note_ctrl();
 
@@ -415,15 +458,15 @@ mod tests {
             text: "gibberish nonsense xyz".into(),
         };
 
-        CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl);
+        CadenceSession::handle_command(event, &mut sequencer, &mut note_ctrl, None).await;
         assert!(
             !sequencer.is_playing(),
             "パースエラー時はシーケンスがセットされないべき"
         );
     }
 
-    #[test]
-    fn handle_command_replaces_existing_sequence() {
+    #[tokio::test]
+    async fn handle_command_replaces_existing_sequence() {
         let mut sequencer = MidiSequencer::new();
         let mut note_ctrl = make_note_ctrl();
 
@@ -433,7 +476,7 @@ mod tests {
             mode: CommandMode::Parse,
             text: "C major 120bpm".into(),
         };
-        CadenceSession::handle_command(event1, &mut sequencer, &mut note_ctrl);
+        CadenceSession::handle_command(event1, &mut sequencer, &mut note_ctrl, None).await;
         assert!(sequencer.is_playing());
 
         // 別のシーケンスで上書き
@@ -442,15 +485,15 @@ mod tests {
             mode: CommandMode::Parse,
             text: "A minor 90bpm".into(),
         };
-        CadenceSession::handle_command(event2, &mut sequencer, &mut note_ctrl);
+        CadenceSession::handle_command(event2, &mut sequencer, &mut note_ctrl, None).await;
         assert!(
             sequencer.is_playing(),
             "新しいシーケンスで上書きされるべき"
         );
     }
 
-    #[test]
-    fn handle_command_stop_via_parse() {
+    #[tokio::test]
+    async fn handle_command_stop_via_parse() {
         let mut sequencer = MidiSequencer::new();
         let mut note_ctrl = make_note_ctrl();
 
@@ -460,7 +503,7 @@ mod tests {
             mode: CommandMode::Parse,
             text: "C major 120bpm".into(),
         };
-        CadenceSession::handle_command(start, &mut sequencer, &mut note_ctrl);
+        CadenceSession::handle_command(start, &mut sequencer, &mut note_ctrl, None).await;
         assert!(sequencer.is_playing());
 
         // stop コマンド
@@ -469,7 +512,7 @@ mod tests {
             mode: CommandMode::Parse,
             text: "stop".into(),
         };
-        CadenceSession::handle_command(stop, &mut sequencer, &mut note_ctrl);
+        CadenceSession::handle_command(stop, &mut sequencer, &mut note_ctrl, None).await;
         assert!(!sequencer.is_playing(), "stop でシーケンサーが停止するべき");
     }
 }
