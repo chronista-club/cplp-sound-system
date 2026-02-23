@@ -3,6 +3,7 @@
 //! Synthesizer（Human/Unpattern）と BeatMachine（History/Pattern）の出力を受け取り、
 //! Cadence からの音声データやルーパーと合わせて、リアルタイムに加工・ミキシングして出力する。
 
+use cplp_core::AudioModule;
 use cplp_plug_beat_machine::BeatMachine;
 use cplp_plug_looper::Looper;
 use cplp_plug_synthesizer::Synthesizer;
@@ -50,6 +51,8 @@ pub struct Flux {
     synthesizer: Synthesizer,
     beat_machine: BeatMachine,
     looper: Looper,
+    /// 動的に登録されたモジュール（将来の拡張用）
+    modules: Vec<Box<dyn AudioModule>>,
     sample_rate: f32,
     synth_state: ModuleState,
     beat_machine_state: ModuleState,
@@ -63,6 +66,7 @@ impl Flux {
             synthesizer: Synthesizer::new(sample_rate),
             beat_machine: BeatMachine::new(bpm, sample_rate),
             looper: Looper::new(sample_rate),
+            modules: Vec::new(),
             sample_rate,
             synth_state: ModuleState::Off,
             beat_machine_state: ModuleState::Off,
@@ -123,6 +127,26 @@ impl Flux {
 
     pub fn sample_rate(&self) -> f32 {
         self.sample_rate
+    }
+
+    /// 動的モジュールを登録
+    pub fn register_module(&mut self, module: Box<dyn AudioModule>) {
+        self.modules.push(module);
+    }
+
+    /// 動的モジュールを ID で削除（最初に一致したもの）
+    pub fn remove_module(&mut self, id: &str) -> bool {
+        if let Some(pos) = self.modules.iter().position(|m| m.info().id == id) {
+            self.modules.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 登録済み動的モジュール数
+    pub fn module_count(&self) -> usize {
+        self.modules.len()
     }
 }
 

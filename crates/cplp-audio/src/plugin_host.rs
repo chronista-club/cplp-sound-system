@@ -179,11 +179,14 @@ pub struct NoteController {
 }
 
 /// オーディオスレッド側のイベント受信端
-struct NoteReceiver {
+pub struct NoteReceiver {
     consumer: ringbuf::HeapCons<MidiEvent>,
 }
 
-fn note_channel(capacity: usize) -> (NoteController, NoteReceiver) {
+/// NoteController / NoteReceiver のペアを作成する
+///
+/// テストやスタンドアロン用途で NoteController を取得する際に使用。
+pub fn note_channel(capacity: usize) -> (NoteController, NoteReceiver) {
     let rb = HeapRb::<MidiEvent>::new(capacity);
     let (prod, cons) = rb.split();
     (
