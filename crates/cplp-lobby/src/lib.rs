@@ -5,10 +5,19 @@ pub mod jwt;
 pub mod routes;
 pub mod ws;
 
-use axum::{Json, Router, routing::get};
+use axum::{Json, Router, routing::get, routing::post};
 use serde::Serialize;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
+
+/// ロビーサーバーの動作モード
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LobbyMode {
+    /// ローカルモード: kv-mem、OAuth なし、ゼロコンフィグ
+    Local,
+    /// グローバルモード: 永続化、OAuth 有効
+    Global,
+}
 
 /// アプリケーション共有状態
 #[derive(Clone)]
@@ -16,6 +25,7 @@ pub struct AppState {
     pub db: db::Db,
     pub oauth: auth::OAuthConfig,
     pub jwt_secret: String,
+    pub lobby_mode: LobbyMode,
 }
 
 /// ヘルスチェックのレスポンス
@@ -31,11 +41,22 @@ async fn health_check() -> Json<HealthResponse> {
 
 /// Axum ルーターを生成する
 pub fn create_router(state: AppState) -> Router {
-    Router::new()
-        .route("/health", get(health_check))
-        // OAuth ルート
-        .route("/auth/{provider}", get(auth::oauth_start))
-        .route("/auth/{provider}/callback", get(auth::oauth_callback))
+    let mut router = Router::new().route("/health", get(health_check));
+
+    match state.lobby_mode {
+        LobbyMode::Local => {
+            // LOCAL モード: OAuth なし、ローカル認証のみ
+            router = router.route("/auth/local", post(auth::local_auth));
+        }
+        LobbyMode::Global => {
+            // GLOBAL モード: OAuth 認証
+            router = router
+                .route("/auth/{provider}", get(auth::oauth_start))
+                .route("/auth/{provider}/callback", get(auth::oauth_callback));
+        }
+    }
+
+    router
         .route("/auth/me", get(auth::get_me))
         // グループ & セッション ルート
         .merge(routes::groups::router())
@@ -63,6 +84,7 @@ mod tests {
                 discord: None,
             },
             jwt_secret: "test-secret-key".to_string(),
+            lobby_mode: LobbyMode::Local,
         }
     }
 

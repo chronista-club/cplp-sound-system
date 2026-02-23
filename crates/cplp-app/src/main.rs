@@ -109,6 +109,15 @@ enum SessionCmd {
 /// ロビーサブコマンド
 #[derive(Subcommand)]
 enum LobbyCmd {
+    /// ロビーサーバーを起動
+    Start {
+        /// ロビーモード (local / global)
+        #[arg(long, default_value = "local")]
+        mode: String,
+        /// ポート番号
+        #[arg(short, long, default_value_t = 3000)]
+        port: u16,
+    },
     /// グループ一覧を取得
     Groups {
         /// ロビーサーバー URL
@@ -460,6 +469,36 @@ fn main() -> anyhow::Result<()> {
 
 async fn handle_lobby(cmd: LobbyCmd) -> anyhow::Result<()> {
     match cmd {
+        LobbyCmd::Start { mode, port } => {
+            println!("ロビーサーバーを起動中 (mode: {mode}, port: {port})...");
+
+            let status = std::process::Command::new("docker")
+                .args(["compose", "up", "-d"])
+                .env("LOBBY_MODE", &mode)
+                .status();
+
+            match status {
+                Ok(s) if s.success() => {
+                    println!("ロビーサーバー起動完了: http://localhost:{port}");
+                    println!("  mode: {mode}");
+                    println!("  停止: docker compose down");
+                }
+                Ok(_) => {
+                    anyhow::bail!(
+                        "docker compose up に失敗しました。\n\
+                         Docker がインストールされていることを確認してください。\n\
+                         または直接起動: cargo run -p cplp-lobby"
+                    );
+                }
+                Err(e) => {
+                    anyhow::bail!(
+                        "docker コマンドの実行に失敗しました: {e}\n\
+                         Docker がインストールされていることを確認してください。\n\
+                         または直接起動: LOBBY_MODE={mode} cargo run -p cplp-lobby"
+                    );
+                }
+            }
+        }
         LobbyCmd::Groups { url, token } => {
             let token = resolve_token(token)?;
             let lobby = LobbyClient::new(LobbyConfig {

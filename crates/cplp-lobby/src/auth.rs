@@ -15,8 +15,8 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Redirect, Response};
 use oauth2::basic::BasicClient;
 use oauth2::{
-    AuthUrl, ClientId, ClientSecret, CsrfToken, EndpointNotSet, EndpointSet, RedirectUrl, Scope,
-    TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, EndpointNotSet, EndpointSet,
+    RedirectUrl, Scope, TokenResponse, TokenUrl,
 };
 use serde::{Deserialize, Serialize};
 
@@ -101,6 +101,12 @@ pub struct CallbackQuery {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MeResponse {
     pub user_id: String,
+}
+
+/// /auth/local リクエストボディ
+#[derive(Debug, Deserialize)]
+pub struct LocalAuthRequest {
+    pub nickname: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -267,10 +273,8 @@ pub async fn oauth_start(
 
 /// GET /auth/:provider/callback - OAuth コールバック処理
 ///
-/// 現時点では実際のトークン交換は行わず、構造のみを実装。
-/// 本番では以下のフローになる:
-/// 1. code をアクセストークンに交換
-/// 2. アクセストークンでユーザー情報を取得
+/// 1. authorization code → access token 交換
+/// 2. access token → ユーザー情報取得
 /// 3. DB に upsert
 /// 4. JWT を発行して返す
 pub async fn oauth_callback(
@@ -281,32 +285,38 @@ pub async fn oauth_callback(
     let provider_enum = OAuthProvider::parse_provider(&provider)
         .ok_or_else(|| anyhow::anyhow!("unknown provider: {}", provider))?;
 
-    let _client = state
+    let client = state
         .oauth
         .client_for(provider_enum)
         .ok_or_else(|| anyhow::anyhow!("provider {} is not configured", provider))?;
 
-    // TODO: 実際のトークン交換 + ユーザー情報取得を実装
-    // 現在はコールバックの受信確認のみ
     tracing::info!(
         provider = provider,
         code_len = query.code.len(),
         "OAuth callback received"
     );
 
-    // スタブ: ユーザー情報（本番では OAuth プロバイダーから取得する）
-    let user_info = OAuthUserInfo {
-        provider: provider_enum.as_str().to_string(),
-        id: format!("stub-{}", uuid::Uuid::new_v4()),
-        name: "OAuth User".to_string(),
-        email: "user@example.com".to_string(),
-        avatar_url: None,
-    };
+    // 1. authorization code → access token
+    let http_client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| anyhow::anyhow!("HTTP client build failed: {e}"))?;
 
-    // DB に upsert（oauth_provider + oauth_id でユニーク）
+    let token_result = client
+        .exchange_code(AuthorizationCode::new(query.code.clone()))
+        .request_async(&http_client)
+        .await
+        .map_err(|e| anyhow::anyhow!("OAuth token exchange failed: {e}"))?;
+
+    let access_token = token_result.access_token().secret().to_string();
+
+    // 2. ユーザー情報を取得
+    let user_info = fetch_user_info(provider_enum, &access_token).await?;
+
+    // 3. DB に upsert（oauth_provider + oauth_id でユニーク）
     let user_id = upsert_user(&state.db, &user_info).await?;
 
-    // JWT 発行
+    // 4. JWT 発行
     let token = jwt::create_token(&user_id, &state.jwt_secret)?;
 
     Ok(Json(serde_json::json!({
@@ -320,6 +330,104 @@ pub async fn get_me(auth_user: AuthUser) -> Json<MeResponse> {
     Json(MeResponse {
         user_id: auth_user.user_id,
     })
+}
+
+/// POST /auth/local - ローカルモードでの認証（OAuth スキップ）
+pub async fn local_auth(
+    State(state): State<crate::AppState>,
+    Json(body): Json<LocalAuthRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let local_id = format!("local-{}", uuid::Uuid::new_v4());
+    let user_info = OAuthUserInfo {
+        provider: "local".to_string(),
+        id: local_id,
+        name: body.nickname,
+        email: String::new(),
+        avatar_url: None,
+    };
+
+    let user_id = upsert_user(&state.db, &user_info).await?;
+    let token = jwt::create_token(&user_id, &state.jwt_secret)?;
+
+    Ok(Json(serde_json::json!({
+        "token": token,
+        "user_id": user_id,
+    })))
+}
+
+// ---------------------------------------------------------------------------
+// プロバイダー別ユーザー情報取得
+// ---------------------------------------------------------------------------
+
+/// OAuth プロバイダーからユーザー情報を取得する
+async fn fetch_user_info(
+    provider: OAuthProvider,
+    access_token: &str,
+) -> anyhow::Result<OAuthUserInfo> {
+    let client = reqwest::Client::new();
+
+    match provider {
+        OAuthProvider::Github => {
+            let resp: serde_json::Value = client
+                .get("https://api.github.com/user")
+                .header("Authorization", format!("Bearer {access_token}"))
+                .header("User-Agent", "cplp-lobby")
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+
+            Ok(OAuthUserInfo {
+                provider: "github".to_string(),
+                id: resp["id"].to_string(),
+                name: resp["login"].as_str().unwrap_or_default().to_string(),
+                email: resp["email"].as_str().unwrap_or_default().to_string(),
+                avatar_url: resp["avatar_url"].as_str().map(|s| s.to_string()),
+            })
+        }
+        OAuthProvider::Google => {
+            let resp: serde_json::Value = client
+                .get("https://www.googleapis.com/oauth2/v2/userinfo")
+                .header("Authorization", format!("Bearer {access_token}"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+
+            Ok(OAuthUserInfo {
+                provider: "google".to_string(),
+                id: resp["id"].as_str().unwrap_or_default().to_string(),
+                name: resp["name"].as_str().unwrap_or_default().to_string(),
+                email: resp["email"].as_str().unwrap_or_default().to_string(),
+                avatar_url: resp["picture"].as_str().map(|s| s.to_string()),
+            })
+        }
+        OAuthProvider::Discord => {
+            let resp: serde_json::Value = client
+                .get("https://discord.com/api/users/@me")
+                .header("Authorization", format!("Bearer {access_token}"))
+                .send()
+                .await?
+                .error_for_status()?
+                .json()
+                .await?;
+
+            let avatar_url = resp["avatar"].as_str().map(|hash| {
+                let user_id = resp["id"].as_str().unwrap_or_default();
+                format!("https://cdn.discordapp.com/avatars/{user_id}/{hash}.png")
+            });
+
+            Ok(OAuthUserInfo {
+                provider: "discord".to_string(),
+                id: resp["id"].as_str().unwrap_or_default().to_string(),
+                name: resp["username"].as_str().unwrap_or_default().to_string(),
+                email: resp["email"].as_str().unwrap_or_default().to_string(),
+                avatar_url,
+            })
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +561,7 @@ mod tests {
                 discord: None,
             },
             jwt_secret: jwt_secret.to_string(),
+            lobby_mode: crate::LobbyMode::Local,
         };
 
         async fn handler(auth_user: AuthUser) -> Json<MeResponse> {
@@ -491,6 +600,7 @@ mod tests {
                 discord: None,
             },
             jwt_secret: "test-secret".to_string(),
+            lobby_mode: crate::LobbyMode::Local,
         };
 
         async fn handler(auth_user: AuthUser) -> Json<MeResponse> {
@@ -521,6 +631,7 @@ mod tests {
                 discord: None,
             },
             jwt_secret: "test-secret".to_string(),
+            lobby_mode: crate::LobbyMode::Local,
         };
 
         async fn handler(auth_user: AuthUser) -> Json<MeResponse> {

@@ -1,0 +1,28 @@
+# cplp-lobby + SurrealDB を一発起動
+#
+# 使い方:
+#   docker compose up -d                  # ローカルモード（デフォルト）
+#   LOBBY_MODE=global docker compose up -d  # グローバルモード
+#
+# 環境変数:
+#   LOBBY_MODE      - local(デフォルト) / global
+#   SURREAL_BACKEND - SurrealDB バックエンド（デフォルト: memory）
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    command: start --bind 0.0.0.0:8000 ${SURREAL_BACKEND:-memory}
+    ports:
+      - "8000:8000"
+
+  lobby:
+    build:
+      context: .
+      dockerfile: crates/cplp-lobby/Dockerfile
+    depends_on:
+      - surrealdb
+    environment:
+      SURREAL_URL: ws://surrealdb:8000
+      LOBBY_MODE: ${LOBBY_MODE:-local}
+    ports:
+      - "3000:3000"

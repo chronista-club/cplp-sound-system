@@ -24,6 +24,7 @@ oauth2.workspace = true
 jsonwebtoken.workspace = true
 uuid.workspace = true
 axum-extra.workspace = true
+reqwest.workspace = true
 
 [dev-dependencies]
 axum-test = "18"

@@ -282,6 +282,7 @@ mod tests {
                 discord: None,
             },
             jwt_secret: "test-secret".to_string(),
+            lobby_mode: crate::LobbyMode::Local,
         };
 
         // テスト用ユーザーを作成
