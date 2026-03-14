@@ -1,0 +1,21 @@
+[package]
+name = "cplp-gig"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Gig Scene – 3D ラック/ケーブル UI（visionOS 対応アーキテクチャ）"
+
+[features]
+default = ["wgpu"]
+wgpu = ["dep:wgpu", "dep:winit", "dep:pollster", "dep:bytemuck"]
+
+[dependencies]
+# GPU 非依存
+anyhow.workspace = true
+tracing.workspace = true
+
+# wgpu バックエンド（feature フラグで制御）
+wgpu    = { workspace = true, optional = true }
+winit   = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }

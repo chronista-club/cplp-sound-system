@@ -12,6 +12,7 @@ members = [
     "crates/cplp-plug-beat-machine",
     "crates/cplp-plug-looper",
     "crates/cplp-flux",
+    "crates/cplp-gig",
 ]
 resolver = "2"
 
