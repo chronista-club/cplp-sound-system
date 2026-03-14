@@ -16,6 +16,18 @@ pub struct DrawCall {
     /// 描画するメッシュへのハンドル
     pub mesh: MeshHandle,
     /// モデル行列（列優先 4×4）
+    ///
+    /// `transform[col][row]` の順で要素を格納する列優先レイアウト。
+    /// WGSL の `mat4x4<f32>` と同じメモリ配置であり、バイト列にキャストして
+    /// そのままシェーダーへ転送できる。
+    ///
+    /// 例: 平行移動 (tx, ty, tz) のみの行列:
+    /// ```text
+    /// transform[0] = [1, 0, 0, 0]  // 列 0
+    /// transform[1] = [0, 1, 0, 0]  // 列 1
+    /// transform[2] = [0, 0, 1, 0]  // 列 2
+    /// transform[3] = [tx, ty, tz, 1] // 列 3（平行移動列）
+    /// ```
     pub transform: [[f32; 4]; 4],
 }
 
@@ -61,28 +73,29 @@ pub trait RenderBackend {
 ///
 /// `upload_mesh` で事前にアップロードされたハンドルと SceneNode のリストを受け取り、
 /// `DrawCall` のリストを生成する。
+/// `SceneGraph::get` による O(1) 検索を使用するため、全体計算量は O(M)。
 pub fn build_draw_calls(
     node_handles: &[(crate::scene::NodeId, MeshHandle)],
     graph: &crate::scene::SceneGraph,
 ) -> Vec<DrawCall> {
-    let mut draw_calls = Vec::with_capacity(node_handles.len());
-
-    for (node_id, mesh_handle) in node_handles {
-        if let Some(node) = graph.nodes().iter().find(|n| n.id == *node_id) {
-            let t = &node.transform;
-            // 簡易モデル行列（回転なし・スケールなし版）
-            // 将来: 四元数からの行列変換を追加
-            let transform = [
-                [t.scale[0], 0.0, 0.0, 0.0],
-                [0.0, t.scale[1], 0.0, 0.0],
-                [0.0, 0.0, t.scale[2], 0.0],
-                [t.position[0], t.position[1], t.position[2], 1.0],
-            ];
-            draw_calls.push(DrawCall { mesh: *mesh_handle, transform });
-        }
-    }
-
-    draw_calls
+    node_handles
+        .iter()
+        .filter_map(|(node_id, mesh_handle)| {
+            graph.get(*node_id).map(|node| {
+                let t = &node.transform;
+                // 列優先モデル行列（スケール + 平行移動）。
+                // transform[col][row] の順。列 3 が平行移動列。
+                // 将来: 四元数からの回転行列を乗算する。
+                let transform = [
+                    [t.scale[0], 0.0, 0.0, 0.0], // 列 0
+                    [0.0, t.scale[1], 0.0, 0.0],  // 列 1
+                    [0.0, 0.0, t.scale[2], 0.0],  // 列 2
+                    [t.position[0], t.position[1], t.position[2], 1.0], // 列 3
+                ];
+                DrawCall { mesh: *mesh_handle, transform }
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -100,7 +113,7 @@ mod tests {
 
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].mesh, handle);
-        // 平行移動列が正しく設定されているか
+        // 列 3 が平行移動列: transform[3] = [tx, ty, tz, 1]
         assert_eq!(calls[0].transform[3], [1.0, 2.0, 3.0, 1.0]);
     }
 
