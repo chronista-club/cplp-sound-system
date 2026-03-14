@@ -152,41 +152,32 @@ fn cable_mesh(from_pos: [f32; 3], to_pos: [f32; 3]) -> MeshData {
     let dir = [dx / len, dy / len, dz / len];
     let (right, up) = tangent_frame(&dir);
 
-    // ケーブル方向に垂直な 4 方向のオフセット
-    let offsets: [[f32; 2]; 4] = [[r, 0.0], [0.0, r], [-r, 0.0], [0.0, -r]];
+    // ケーブル方向に垂直な 4 方向のオフセット（3D ワールド空間）
+    let offsets: [[f32; 3]; 4] = [
+        [right[0] * r, right[1] * r, right[2] * r],
+        [up[0] * r,    up[1] * r,    up[2] * r   ],
+        [-right[0] * r, -right[1] * r, -right[2] * r],
+        [-up[0] * r,   -up[1] * r,   -up[2] * r  ],
+    ];
 
-    let mut vertices = Vec::with_capacity(8);
-    let mut indices = Vec::with_capacity(24);
+    // フラットシェーディング: 各面に専用の 4 頂点を割り当てる（4面 × 4頂点 = 16頂点）
+    // 面法線 = 隣り合う 2 オフセットの中点方向（面に垂直な外向きベクトル）
+    let mut vertices = Vec::with_capacity(16);
+    let mut indices  = Vec::with_capacity(24);
 
-    // from 側の 4 頂点
-    for &[or, ou] in &offsets {
-        let ox = right[0] * or + up[0] * ou;
-        let oy = right[1] * or + up[1] * ou;
-        let oz = right[2] * or + up[2] * ou;
-        vertices.push(Vertex {
-            position: [from_pos[0] + ox, from_pos[1] + oy, from_pos[2] + oz],
-            normal: normalize([ox, oy, oz]),
-            uv: [0.0, 0.0],
-            color,
-        });
-    }
-    // to 側の 4 頂点
-    for &[or, ou] in &offsets {
-        let ox = right[0] * or + up[0] * ou;
-        let oy = right[1] * or + up[1] * ou;
-        let oz = right[2] * or + up[2] * ou;
-        vertices.push(Vertex {
-            position: [to_pos[0] + ox, to_pos[1] + oy, to_pos[2] + oz],
-            normal: normalize([ox, oy, oz]),
-            uv: [0.0, 1.0],
-            color,
-        });
-    }
-
-    for i in 0u32..4 {
+    for i in 0..4usize {
         let next = (i + 1) % 4;
-        let (t0, t1, b0, b1) = (i, next, i + 4, next + 4);
-        indices.extend_from_slice(&[t0, b0, b1, t0, b1, t1]);
+        let o0 = offsets[i];
+        let o1 = offsets[next];
+        let normal = normalize([o0[0] + o1[0], o0[1] + o1[1], o0[2] + o1[2]]);
+
+        let base = (i * 4) as u32;
+        vertices.push(Vertex { position: [from_pos[0]+o0[0], from_pos[1]+o0[1], from_pos[2]+o0[2]], normal, uv: [0.0, 0.0], color });
+        vertices.push(Vertex { position: [from_pos[0]+o1[0], from_pos[1]+o1[1], from_pos[2]+o1[2]], normal, uv: [1.0, 0.0], color });
+        vertices.push(Vertex { position: [  to_pos[0]+o1[0],   to_pos[1]+o1[1],   to_pos[2]+o1[2]], normal, uv: [1.0, 1.0], color });
+        vertices.push(Vertex { position: [  to_pos[0]+o0[0],   to_pos[1]+o0[1],   to_pos[2]+o0[2]], normal, uv: [0.0, 1.0], color });
+
+        indices.extend_from_slice(&[base, base+1, base+2, base, base+2, base+3]);
     }
 
     MeshData { vertices, indices }
@@ -236,7 +227,7 @@ fn cross(a: &[f32; 3], b: &[f32; 3]) -> [f32; 3] {
 
 fn normalize(v: [f32; 3]) -> [f32; 3] {
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if len < 1e-6 { v } else { [v[0] / len, v[1] / len, v[2] / len] }
+    if len < 1e-6 { [0.0, 1.0, 0.0] } else { [v[0] / len, v[1] / len, v[2] / len] }
 }
 
 #[cfg(test)]
@@ -293,8 +284,8 @@ mod tests {
             transform: Transform::default(),
         };
         let mesh = build_mesh(&cable_node, &graph);
-        assert_eq!(mesh.vertex_count(), 8);
-        assert_eq!(mesh.index_count(), 24);
+        assert_eq!(mesh.vertex_count(), 16); // 4面 × 4頂点（フラットシェーディング）
+        assert_eq!(mesh.index_count(), 24);  // 4面 × 2三角形 × 3インデックス
         // from (x=0) から to (x=1) までスパンしているか確認
         let min_x = mesh.vertices.iter().map(|v| v.position[0]).fold(f32::INFINITY, f32::min);
         let max_x = mesh.vertices.iter().map(|v| v.position[0]).fold(f32::NEG_INFINITY, f32::max);
