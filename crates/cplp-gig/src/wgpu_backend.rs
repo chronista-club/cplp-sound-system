@@ -5,6 +5,7 @@
 //! visionOS 向けは将来 `metal_backend.rs` / `realitykit_backend.rs` を追加する。
 
 use std::collections::HashMap;
+use std::num::NonZero;
 use std::sync::Arc;
 
 use wgpu::util::DeviceExt;
@@ -31,8 +32,6 @@ pub struct WgpuBackend {
     view_proj_bind_group: wgpu::BindGroup,
     meshes: HashMap<u32, GpuMesh>,
     next_handle: u32,
-    width: u32,
-    height: u32,
 }
 
 impl WgpuBackend {
@@ -52,14 +51,9 @@ impl WgpuBackend {
             },
         ))?;
 
-        // プッシュ定数を有効化してモデル行列をドローコールごとに渡せるようにする
         let (device, queue) = pollster::block_on(adapter.request_device(
             &wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::PUSH_CONSTANTS,
-                required_limits: wgpu::Limits {
-                    max_push_constant_size: 64, // 4×4 f32 行列 = 64 バイト
-                    ..wgpu::Limits::downlevel_defaults()
-                },
+                required_limits: wgpu::Limits::downlevel_defaults(),
                 ..Default::default()
             },
         ))?;
@@ -109,11 +103,8 @@ impl WgpuBackend {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("gig_pipeline_layout"),
                 bind_group_layouts: &[&bind_group_layout],
-                // プッシュ定数: 頂点シェーダーにモデル行列 (64 バイト) を渡す
-                push_constant_ranges: &[wgpu::PushConstantRange {
-                    stages: wgpu::ShaderStages::VERTEX,
-                    range: 0..64,
-                }],
+                // immediate data: 頂点シェーダーにモデル行列 (64 バイト) を渡す
+                immediate_size: 64,
             });
 
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -142,7 +133,7 @@ impl WgpuBackend {
             },
             depth_stencil: None,
             multisample: wgpu::MultisampleState::default(),
-            multiview: None,
+            multiview_mask: NonZero::new(0),
             cache: None,
         });
 
@@ -156,8 +147,6 @@ impl WgpuBackend {
             view_proj_bind_group,
             meshes: HashMap::new(),
             next_handle: 0,
-            width: size.width,
-            height: size.height,
         })
     }
 
@@ -256,12 +245,8 @@ impl RenderBackend for WgpuBackend {
 
             for call in draw_calls {
                 if let Some(gpu_mesh) = self.meshes.get(&call.mesh.0) {
-                    // モデル行列をプッシュ定数でシェーダーに渡す（ドローコールごと）
-                    pass.set_push_constants(
-                        wgpu::ShaderStages::VERTEX,
-                        0,
-                        bytemuck::cast_slice(&call.transform),
-                    );
+                    // モデル行列を immediate data でシェーダーに渡す（ドローコールごと）
+                    pass.set_immediates(0, bytemuck::cast_slice(&call.transform));
                     pass.set_vertex_buffer(0, gpu_mesh.vertex_buf.slice(..));
                     pass.set_index_buffer(
                         gpu_mesh.index_buf.slice(..),
@@ -278,8 +263,6 @@ impl RenderBackend for WgpuBackend {
 
     fn resize(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
-            self.width = width;
-            self.height = height;
             self.config.width = width;
             self.config.height = height;
             self.surface.configure(&self.device, &self.config);

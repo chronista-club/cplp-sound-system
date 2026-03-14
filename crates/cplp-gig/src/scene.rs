@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 /// ノードを一意に識別する ID。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct NodeId(pub u32);
+pub struct NodeId(pub(crate) u32);
 
 /// 3D トランスフォーム（位置・回転・スケール）。
 #[derive(Debug, Clone, PartialEq)]
