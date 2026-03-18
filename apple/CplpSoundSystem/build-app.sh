@@ -19,28 +19,42 @@ if [ "$MODE" = "release" ]; then
     CARGO_PROFILE="--release"
 fi
 
-# 1. Rust staticlib ビルド
-echo "🔨 Building cplp-ffi ($MODE)..."
-(cd ../.. && cargo build -p cplp-ffi $CARGO_PROFILE)
+REPO_ROOT="$(cd ../.. && pwd)"
 
-# 2. cbindgen でヘッダー再生成（インストール済みの場合のみ）
+# 1. Rust staticlib ビルド
+echo "==> Building cplp-ffi ($MODE)..."
+(cd "$REPO_ROOT" && cargo build -p cplp-ffi $CARGO_PROFILE)
+
+# 2. cbindgen でヘッダー自動生成
+HEADER_PATH="CplpBridge/cplp_ffi.h"
 if command -v cbindgen &>/dev/null; then
-    echo "📝 Regenerating cplp_ffi.h..."
-    (cd ../.. && cbindgen \
-        --config crates/cplp-ffi/cbindgen.toml \
+    echo "==> Generating $HEADER_PATH via cbindgen..."
+    cbindgen \
+        --config "$REPO_ROOT/crates/cplp-ffi/cbindgen.toml" \
         --crate cplp-ffi \
-        --output apple/CplpSoundSystem/CplpBridge/cplp_ffi.h)
+        --output "$HEADER_PATH" \
+        "$REPO_ROOT"
+
+    # ヘッダーの差分を検出（開発者への通知）
+    if git -C "$REPO_ROOT" diff --quiet -- "apple/CplpSoundSystem/$HEADER_PATH" 2>/dev/null; then
+        echo "    (no changes)"
+    else
+        echo "    *** cplp_ffi.h updated — commit the new header ***"
+    fi
+elif [ "${CBINDGEN_REQUIRED:-0}" = "1" ]; then
+    echo "ERROR: cbindgen is required but not found. Install with: cargo install cbindgen"
+    exit 1
 else
-    echo "⚠️  cbindgen not found — skipping header generation"
-    echo "   Install: cargo install cbindgen"
+    echo "==> cbindgen not found, using existing $HEADER_PATH"
+    echo "    Install with: cargo install cbindgen"
 fi
 
 # 3. xcodegen でプロジェクト生成
-echo "⚙️  Generating Xcode project..."
+echo "==> Generating Xcode project..."
 xcodegen generate --quiet
 
 # 4. xcodebuild
-echo "🔨 Building CplpSoundSystem ($MODE)..."
+echo "==> Building CplpSoundSystem ($MODE)..."
 xcodebuild -project CplpSoundSystem.xcodeproj \
     -scheme CplpSoundSystem \
     -configuration "$XCODE_CONFIG" \
@@ -49,10 +63,10 @@ xcodebuild -project CplpSoundSystem.xcodeproj \
 
 # 5. ビルド成果物をコピー
 DERIVED_DATA="$HOME/Library/Developer/Xcode/DerivedData"
-APP_SRC=$(find "$DERIVED_DATA" -path "*/CplpSoundSystem-*/Build/Products/$XCODE_CONFIG/CplpSoundSystem.app" -maxdepth 8 2>/dev/null | grep -v Index.noindex | head -1)
+APP_SRC=$(find "$DERIVED_DATA" -path "*/CplpSoundSystem-*/Build/Products/$XCODE_CONFIG/CPLP Sound System.app" -maxdepth 8 2>/dev/null | grep -v Index.noindex | head -1)
 
 if [ -z "$APP_SRC" ]; then
-    echo "❌ CplpSoundSystem.app not found in DerivedData"
+    echo "ERROR: CPLP Sound System.app not found in DerivedData"
     exit 1
 fi
 
@@ -61,7 +75,7 @@ rm -rf "$APP_DIR"
 mkdir -p .build
 cp -R "$APP_SRC" "$APP_DIR"
 
-echo "✅ CplpSoundSystem.app built: $APP_DIR"
+echo "==> CplpSoundSystem.app built: $APP_DIR"
 echo ""
-echo "起動: open $APP_DIR"
-echo "インストール: cp -R $APP_DIR ~/Applications/"
+echo "起動: open \"$APP_DIR\""
+echo "インストール: cp -R \"$APP_DIR\" ~/Applications/"

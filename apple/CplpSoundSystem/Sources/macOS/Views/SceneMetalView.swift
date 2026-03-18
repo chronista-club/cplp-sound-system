@@ -1,161 +1,123 @@
-#if os(macOS)
-
-import AppKit
-import CplpBridge
-import QuartzCore
 import SwiftUI
+import CplpBridge
 
-// MARK: - SceneMetalView
+#if os(macOS)
+import MetalKit
 
-/// wgpu Surface を表示する Metal ビュー
-///
-/// CAMetalLayer を作成し、cplp_scene_attach() で Rust 側の wgpu レンダラーに渡す。
-/// CVDisplayLink でフレームごとに cplp_scene_render() を呼び出す。
-struct SceneMetalView: View {
-    @Environment(CplpClient.self) private var client
+/// wgpu (Rust) が CAMetalLayer に描画する 3D シーンビュー
+struct SceneMetalView: NSViewRepresentable {
+    func makeNSView(context: Context) -> MTKView {
+        let mtkView = MTKView()
+        mtkView.device = MTLCreateSystemDefaultDevice()
+        mtkView.isPaused = true  // 自前の DisplayLink で駆動
+        mtkView.enableSetNeedsDisplay = false
+        mtkView.delegate = context.coordinator
+        mtkView.layer?.isOpaque = true
 
-    var body: some View {
-        VStack {
-            if client.isInitialized {
-                MetalLayerView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        return mtkView
+    }
+
+    func updateNSView(_ nsView: MTKView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator: NSObject, MTKViewDelegate {
+        private var isAttached = false
+        private var displayLink: CVDisplayLink?
+        /// CAMetalLayer への強参照を保持（Rust 側が raw pointer で参照するため）
+        private var retainedMetalLayer: CAMetalLayer?
+        /// DisplayLink コールバックから安全にチェックする停止フラグ
+        private let renderActive = RenderFlag()
+
+        override init() {
+            super.init()
+        }
+
+        deinit {
+            stopDisplayLink()
+            cplp_scene_detach()
+            retainedMetalLayer = nil
+        }
+
+        // MARK: - MTKViewDelegate
+
+        func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
+            let w = UInt32(size.width)
+            let h = UInt32(size.height)
+
+            // ゼロサイズをスキップ（初回レイアウト前に呼ばれることがある）
+            guard w > 0, h > 0 else { return }
+
+            if !isAttached {
+                guard let metalLayer = view.layer as? CAMetalLayer else { return }
+                retainedMetalLayer = metalLayer
+                let layerPtr = Unmanaged.passUnretained(metalLayer).toOpaque()
+                let result = cplp_scene_attach(layerPtr, w, h)
+                if result == CPLP_RESULT_OK {
+                    isAttached = true
+                    startDisplayLink()
+                }
             } else {
-                Text("Runtime not initialized")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                cplp_scene_resize(w, h)
             }
         }
-        .navigationTitle("Scene")
-    }
-}
 
-// MARK: - MetalLayerView (NSViewRepresentable)
+        func draw(in view: MTKView) {
+            // DisplayLink 駆動のため未使用
+        }
 
-struct MetalLayerView: NSViewRepresentable {
+        // MARK: - DisplayLink
 
-    func makeNSView(context: Context) -> MetalHostView {
-        let view = MetalHostView()
-        return view
-    }
+        private func startDisplayLink() {
+            renderActive.isActive = true
 
-    func updateNSView(_ nsView: MetalHostView, context: Context) {
-        // SwiftUI の再描画時にリサイズを通知
-        let size = nsView.bounds.size
-        let scale = nsView.window?.backingScaleFactor ?? 2.0
-        let w = UInt32(size.width * scale)
-        let h = UInt32(size.height * scale)
-        if w > 0 && h > 0 {
-            cplp_scene_resize(w, h)
+            var link: CVDisplayLink?
+            CVDisplayLinkCreateWithActiveCGDisplays(&link)
+            guard let link else { return }
+
+            // RenderFlag を passRetained でコールバックに渡す
+            let flagPtr = Unmanaged.passRetained(renderActive).toOpaque()
+
+            CVDisplayLinkSetOutputCallback(link, { _, _, _, _, _, userInfo -> CVReturn in
+                guard let userInfo else { return kCVReturnSuccess }
+                let flag = Unmanaged<RenderFlag>.fromOpaque(userInfo).takeUnretainedValue()
+                if flag.isActive {
+                    cplp_scene_render()
+                }
+                return kCVReturnSuccess
+            }, flagPtr)
+
+            CVDisplayLinkStart(link)
+            self.displayLink = link
+        }
+
+        private func stopDisplayLink() {
+            // フラグを先に無効化（コールバックが render を呼ばなくなる）
+            renderActive.isActive = false
+
+            if let link = displayLink {
+                CVDisplayLinkStop(link)
+                displayLink = nil
+            }
+
+            // passRetained の対の release（DisplayLink 停止後に安全に解放）
+            if isAttached {
+                Unmanaged.passUnretained(renderActive).release()
+            }
         }
     }
 }
 
-// MARK: - MetalHostView
+/// DisplayLink コールバック（別スレッド）から安全にアクセスできるフラグ
+private final class RenderFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _isActive: Bool = false
 
-/// CAMetalLayer をホストする NSView
-///
-/// wantsLayer = true で CAMetalLayer を作成し、
-/// CVDisplayLink で毎フレーム cplp_scene_render() を呼ぶ。
-final class MetalHostView: NSView {
-    private var displayLink: CVDisplayLink?
-    private var isAttached = false
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-    }
-
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
-        wantsLayer = true
-    }
-
-    override func makeBackingLayer() -> CALayer {
-        let metalLayer = CAMetalLayer()
-        metalLayer.pixelFormat = .bgra8Unorm
-        metalLayer.contentsScale = NSScreen.main?.backingScaleFactor ?? 2.0
-        metalLayer.framebufferOnly = true
-        return metalLayer
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-
-        if window != nil && !isAttached {
-            attachScene()
-        } else if window == nil && isAttached {
-            detachScene()
-        }
-    }
-
-    override func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        guard isAttached else { return }
-
-        let scale = window?.backingScaleFactor ?? 2.0
-        let w = UInt32(newSize.width * scale)
-        let h = UInt32(newSize.height * scale)
-        if w > 0 && h > 0 {
-            layer?.frame = CGRect(origin: .zero, size: newSize)
-            cplp_scene_resize(w, h)
-        }
-    }
-
-    // MARK: - Scene Lifecycle
-
-    private func attachScene() {
-        guard let metalLayer = layer as? CAMetalLayer else { return }
-
-        let scale = window?.backingScaleFactor ?? 2.0
-        let w = UInt32(bounds.width * scale)
-        let h = UInt32(bounds.height * scale)
-        guard w > 0 && h > 0 else { return }
-
-        metalLayer.contentsScale = scale
-        metalLayer.drawableSize = CGSize(width: CGFloat(w), height: CGFloat(h))
-
-        // Rust 側に CAMetalLayer を渡す
-        let layerPtr = Unmanaged.passUnretained(metalLayer).toOpaque()
-        let result = cplp_scene_attach(layerPtr, w, h)
-        guard result == CPLP_RESULT_OK else { return }
-
-        isAttached = true
-        startDisplayLink()
-    }
-
-    private func detachScene() {
-        stopDisplayLink()
-        cplp_scene_detach()
-        isAttached = false
-    }
-
-    // MARK: - Display Link
-
-    private func startDisplayLink() {
-        guard displayLink == nil else { return }
-
-        var link: CVDisplayLink?
-        CVDisplayLinkCreateWithActiveCGDisplays(&link)
-        guard let link else { return }
-
-        CVDisplayLinkSetOutputCallback(link, { _, _, _, _, _, _ -> CVReturn in
-            cplp_scene_render()
-            return kCVReturnSuccess
-        }, nil)
-
-        CVDisplayLinkStart(link)
-        displayLink = link
-    }
-
-    private func stopDisplayLink() {
-        guard let link = displayLink else { return }
-        CVDisplayLinkStop(link)
-        displayLink = nil
-    }
-
-    deinit {
-        detachScene()
+    var isActive: Bool {
+        get { lock.withLock { _isActive } }
+        set { lock.withLock { _isActive = newValue } }
     }
 }
-
 #endif

@@ -1,261 +1,262 @@
-import CplpBridge
 import Foundation
+import CplpBridge
 
-// MARK: - Data Models
-
-/// トラック状態の Swift 表現
-struct TrackState: Identifiable, Sendable {
-    var id: String { peerId }
-    let peerId: String
-    let label: String
-    var volume: Float
-    var pan: Float
-    var isMuted: Bool
-    var isSolo: Bool
-}
-
-/// プラグインエントリの Swift 表現
-struct PluginEntry: Identifiable, Sendable {
-    var id: String { pluginId }
-    let pluginId: String
-    let name: String
-}
-
-// MARK: - CplpClient
-
-/// Rust FFI ランタイムを管理するクライアント
+/// Rust FFI ラッパー — Swift から cplp-ffi を安全に呼び出す
 ///
-/// cplp-ffi の全 FFI 関数を Swift から安全に呼び出すためのラッパー。
-/// @MainActor で UI スレッドに限定し、@Observable で SwiftUI バインディングを提供する。
-///
-/// ## ライフサイクル
-/// ```
-/// init() → cplp_init()
-///   ↓
-/// startAudio() / connectSession() / ...
-///   ↓
-/// deinit → cplp_audio_stop() → cplp_destroy()
-/// ```
+/// ライフサイクル: `CplpClient.initialize()` → 使用 → `CplpClient.shutdown()`
+/// App 全体で 1 インスタンスのみ想定（Rust 側がグローバル状態を持つため）。
 @MainActor
-@Observable
-final class CplpClient {
+final class CplpClient: ObservableObject {
+    @Published private(set) var isInitialized: Bool = false
+    @Published private(set) var isAudioRunning: Bool = false
+    @Published private(set) var version: String = ""
+    @Published private(set) var meterLeft: Float = 0
+    @Published private(set) var meterRight: Float = 0
 
-    // MARK: - Published Properties
+    // MARK: - セッション状態
 
-    /// ランタイムが初期化済みか
-    private(set) var isInitialized: Bool = false
+    @Published private(set) var sessionStatus: CplpSessionStatus = CPLP_SESSION_STATUS_DISCONNECTED
+    @Published private(set) var peerCount: UInt32 = 0
+    @Published private(set) var lobbyUrl: String = ""
 
-    /// オーディオエンジンが稼働中か
-    private(set) var audioRunning: Bool = false
+    // MARK: - ミキサー状態
 
-    /// セッション接続状態
-    private(set) var sessionStatus: SessionStatus = .disconnected
+    @Published private(set) var tracks: [TrackState] = []
+    @Published private(set) var masterVolume: Float = 1.0
 
-    /// 接続中のピア数
-    private(set) var peerCount: UInt32 = 0
+    // MARK: - プラグイン
 
-    /// ミキサートラック一覧
-    private(set) var tracks: [TrackState] = []
+    @Published private(set) var plugins: [PluginEntry] = []
 
-    /// スキャン済みプラグイン一覧
-    private(set) var plugins: [PluginEntry] = []
+    private var meterTimer: Timer?
+    private var meterTask: Task<Void, Never>?
+    private var sessionPollTimer: Timer?
+    private var mixerPollTimer: Timer?
 
-    /// バージョン文字列
-    private(set) var version: String = ""
+    // MARK: - ライフサイクル
 
-    /// マスターボリューム
-    private(set) var masterVolume: Float = 1.0
-
-    /// オーディオメーター（L/R）
-    private(set) var meterLeft: Float = 0.0
-    private(set) var meterRight: Float = 0.0
-
-    // MARK: - Session Status
-
-    enum SessionStatus: String, Sendable {
-        case disconnected = "Disconnected"
-        case connecting = "Connecting"
-        case connected = "Connected"
-        case disconnecting = "Disconnecting"
+    /// ランタイムを初期化し、バージョン情報を取得する
+    func initialize() throws {
+        let result = cplp_init()
+        guard result == CPLP_RESULT_OK else {
+            let msg = cplp_last_error().map { String(cString: $0) } ?? "unknown"
+            throw CplpError.initFailed(msg)
+        }
+        let v = cplp_version()
+        version = "\(v.major).\(v.minor).\(v.patch)"
+        isInitialized = true
     }
 
-    // MARK: - Private
-
-    private var pollTimer: Timer?
-
-    // MARK: - Init / Destroy
-
-    init() {
-        let result = cplp_init()
-        if result == CPLP_RESULT_OK {
-            isInitialized = true
-            let v = cplp_version()
-            version = "\(v.major).\(v.minor).\(v.patch)"
-            startPolling()
+    /// ランタイムを破棄する
+    func shutdown() {
+        stopMeterPolling()
+        stopSessionPolling()
+        stopMixerPolling()
+        if isAudioRunning {
+            cplp_audio_stop()
+            isAudioRunning = false
         }
+        if sessionStatus == CPLP_SESSION_STATUS_CONNECTED
+            || sessionStatus == CPLP_SESSION_STATUS_CONNECTING
+        {
+            cplp_session_disconnect()
+        }
+        cplp_destroy()
+        isInitialized = false
     }
 
     deinit {
-        pollTimer?.invalidate()
-        cplp_audio_stop()
-        cplp_destroy()
+        meterTask?.cancel()
     }
 
-    /// バージョン文字列を返す
-    func getVersion() -> String {
-        version
-    }
+    // MARK: - オーディオ
 
-    // MARK: - Audio Control
-
-    /// オーディオエンジンを開始
     func startAudio() {
         let result = cplp_audio_start()
         if result == CPLP_RESULT_OK {
-            audioRunning = true
+            isAudioRunning = true
+            startMeterPolling()
         }
     }
 
-    /// オーディオエンジンを停止
     func stopAudio() {
+        stopMeterPolling()
         let result = cplp_audio_stop()
         if result == CPLP_RESULT_OK {
-            audioRunning = false
+            isAudioRunning = false
             meterLeft = 0
             meterRight = 0
         }
     }
 
-    /// メーター値を更新（ポーリングで呼ばれる）
-    func refreshMeters() {
-        let meters = cplp_audio_get_meters()
-        meterLeft = meters.left
-        meterRight = meters.right
-        audioRunning = cplp_audio_is_running()
-    }
+    // MARK: - プラグインスキャン
 
-    /// CLAP プラグインをスキャン
     func scanPlugins() {
         let list = cplp_audio_scan_plugins()
-        defer { cplp_plugin_list_free(list) }
-
         var entries: [PluginEntry] = []
-        for i in 0..<Int(list.count) {
-            let item = list.items[i]
-            let pluginId = item.id.map { String(cString: $0) } ?? "unknown"
-            let name = item.name.map { String(cString: $0) } ?? pluginId
-            entries.append(PluginEntry(pluginId: pluginId, name: name))
+        if let items = list.items {
+            for i in 0..<Int(list.count) {
+                let info = items[i]
+                let id = info.id.map { String(cString: $0) } ?? ""
+                let name = info.name.map { String(cString: $0) } ?? ""
+                entries.append(PluginEntry(id: id, name: name))
+            }
         }
         plugins = entries
+        cplp_plugin_list_free(list)
     }
 
-    // MARK: - Session
+    // MARK: - セッション
 
-    /// セッションに接続
-    func connectSession(lobbyURL: String) {
-        lobbyURL.withCString { cStr in
-            let result = cplp_session_connect(cStr)
+    func sessionConnect(url: String) {
+        url.withCString { ptr in
+            let result = cplp_session_connect(ptr)
             if result == CPLP_RESULT_OK {
+                startSessionPolling()
                 refreshSessionState()
             }
         }
     }
 
-    /// セッションから切断
-    func disconnectSession() {
+    func sessionDisconnect() {
         let result = cplp_session_disconnect()
         if result == CPLP_RESULT_OK {
+            stopSessionPolling()
             refreshSessionState()
         }
     }
 
-    /// セッション状態を取得して更新
     func refreshSessionState() {
         let state = cplp_session_get_state()
+        sessionStatus = state.status
         peerCount = state.peer_count
-
-        switch state.status {
-        case CPLP_SESSION_STATUS_DISCONNECTED:
-            sessionStatus = .disconnected
-        case CPLP_SESSION_STATUS_CONNECTING:
-            sessionStatus = .connecting
-        case CPLP_SESSION_STATUS_CONNECTED:
-            sessionStatus = .connected
-        case CPLP_SESSION_STATUS_DISCONNECTING:
-            sessionStatus = .disconnecting
-        default:
-            sessionStatus = .disconnected
+        if let url = state.lobby_url {
+            lobbyUrl = String(cString: url)
+        } else {
+            lobbyUrl = ""
         }
     }
 
-    // MARK: - Mixer
+    // MARK: - ミキサー
 
-    /// トラックのボリュームを設定
-    func setVolume(peerId: String, volume: Float) {
-        peerId.withCString { cStr in
-            cplp_mixer_set_volume(cStr, volume)
+    func mixerSetVolume(peerId: String, volume: Float) {
+        peerId.withCString { ptr in
+            cplp_mixer_set_volume(ptr, volume)
         }
         refreshMixerState()
     }
 
-    /// トラックのパンを設定
-    func setPan(peerId: String, pan: Float) {
-        peerId.withCString { cStr in
-            cplp_mixer_set_pan(cStr, pan)
+    func mixerSetPan(peerId: String, pan: Float) {
+        peerId.withCString { ptr in
+            cplp_mixer_set_pan(ptr, pan)
         }
         refreshMixerState()
     }
 
-    /// トラックのミュートを設定
-    func setMute(peerId: String, mute: Bool) {
-        peerId.withCString { cStr in
-            cplp_mixer_set_mute(cStr, mute)
+    func mixerSetMute(peerId: String, mute: Bool) {
+        peerId.withCString { ptr in
+            cplp_mixer_set_mute(ptr, mute)
         }
         refreshMixerState()
     }
 
-    /// ミキサー状態を取得して更新
     func refreshMixerState() {
         let state = cplp_mixer_get_state()
-        defer { cplp_mixer_state_free(state) }
-
-        masterVolume = state.master_volume
-
         var newTracks: [TrackState] = []
-        for i in 0..<Int(state.track_count) {
-            let info = state.tracks[i]
-            let peerId = info.peer_id.map { String(cString: $0) } ?? "unknown"
-            let label = info.label.map { String(cString: $0) } ?? peerId
-            newTracks.append(TrackState(
-                peerId: peerId,
-                label: label,
-                volume: info.volume,
-                pan: info.pan,
-                isMuted: info.mute,
-                isSolo: info.solo
-            ))
+        if let items = state.tracks {
+            for i in 0..<Int(state.track_count) {
+                let t = items[i]
+                let peerId = t.peer_id.map { String(cString: $0) } ?? ""
+                let label = t.label.map { String(cString: $0) } ?? ""
+                newTracks.append(TrackState(
+                    peerId: peerId,
+                    label: label,
+                    volume: t.volume,
+                    pan: t.pan,
+                    mute: t.mute,
+                    solo: t.solo
+                ))
+            }
         }
         tracks = newTracks
-    }
-
-    /// ミキサー状態を解放
-    func freeMixerState(_ state: CplpMixerState) {
+        masterVolume = state.master_volume
         cplp_mixer_state_free(state)
     }
 
-    // MARK: - Polling
+    // MARK: - メーターポーリング
 
-    /// セッション/ミキサー/メーター状態をポーリングで更新
-    private func startPolling() {
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self else { return }
-                self.refreshMeters()
-                self.refreshSessionState()
-                if self.sessionStatus == .connected {
-                    self.refreshMixerState()
-                }
-            }
+    private func startMeterPolling() {
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let meters = cplp_audio_get_meters()
+            self.meterLeft = meters.left
+            self.meterRight = meters.right
+        }
+    }
+
+    private func stopMeterPolling() {
+        meterTimer?.invalidate()
+        meterTimer = nil
+        meterTask?.cancel()
+        meterTask = nil
+    }
+
+    // MARK: - セッションポーリング
+
+    private func startSessionPolling() {
+        sessionPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.refreshSessionState()
+        }
+    }
+
+    private func stopSessionPolling() {
+        sessionPollTimer?.invalidate()
+        sessionPollTimer = nil
+    }
+
+    // MARK: - ミキサーポーリング
+
+    func startMixerPolling() {
+        refreshMixerState()
+        mixerPollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.refreshMixerState()
+        }
+    }
+
+    func stopMixerPolling() {
+        mixerPollTimer?.invalidate()
+        mixerPollTimer = nil
+    }
+}
+
+// MARK: - モデル型
+
+struct TrackState: Identifiable {
+    var id: String { peerId }
+    let peerId: String
+    let label: String
+    var volume: Float
+    var pan: Float
+    var mute: Bool
+    var solo: Bool
+}
+
+struct PluginEntry: Identifiable {
+    let id: String
+    let name: String
+}
+
+// MARK: - エラー型
+
+enum CplpError: Error, LocalizedError {
+    case initFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .initFailed(let msg):
+            return "cplp_init failed: \(msg)"
         }
     }
 }

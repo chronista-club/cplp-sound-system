@@ -13,7 +13,7 @@ let package = Package(
         .executableTarget(
             name: "CplpSoundSystem",
             dependencies: ["CplpBridge"],
-            path: "Sources/macOS",
+            path: "Sources",
             linkerSettings: [
                 // libcplp_ffi.a をリンク（cargo build --release で生成）
                 .unsafeFlags([

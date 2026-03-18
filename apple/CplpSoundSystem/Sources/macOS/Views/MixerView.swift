@@ -1,119 +1,151 @@
 import SwiftUI
+import CplpBridge
 
-// MARK: - MixerView
-
-/// ミキサーコントロール: マスターボリューム + トラック別 Volume/Pan/Mute
+/// ミキサー UI — トラック別のフェーダー / パン / ミュート
 struct MixerView: View {
-    @Environment(CplpClient.self) private var client
+    @EnvironmentObject var client: CplpClient
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // マスターボリューム
+                // MARK: - マスター
                 GroupBox("Master") {
-                    VStack(alignment: .leading) {
-                        HStack {
-                            Text("Volume")
-                            Spacer()
-                            Text(String(format: "%.0f%%", client.masterVolume * 100))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-                        ProgressView(value: Double(client.masterVolume))
-                            .tint(.blue)
+                    HStack {
+                        Text("Volume")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text(String(format: "%.0f%%", client.masterVolume * 100))
+                            .monospacedDigit()
+                            .frame(width: 50, alignment: .trailing)
                     }
                     .padding(.vertical, 4)
                 }
 
-                // トラック一覧
+                // MARK: - トラック一覧
                 if client.tracks.isEmpty {
                     GroupBox("Tracks") {
-                        Text("Connect to a session to see tracks")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .center)
-                            .padding()
+                        VStack(spacing: 12) {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.largeTitle)
+                                .foregroundStyle(.tertiary)
+                            Text("No tracks available.")
+                                .foregroundStyle(.secondary)
+                            Text("Connect to a session to see mixer tracks.")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
                     }
                 } else {
                     ForEach(client.tracks) { track in
-                        TrackChannelView(track: track)
+                        TrackChannelStrip(track: track)
                     }
                 }
+
+                Spacer()
             }
-            .padding()
+            .padding(20)
         }
         .navigationTitle("Mixer")
+        .onAppear {
+            client.startMixerPolling()
+        }
+        .onDisappear {
+            client.stopMixerPolling()
+        }
     }
 }
 
-// MARK: - TrackChannelView
+// MARK: - チャンネルストリップ
 
-/// 1 トラック分のチャンネルストリップ
-struct TrackChannelView: View {
-    @Environment(CplpClient.self) private var client
+struct TrackChannelStrip: View {
+    @EnvironmentObject var client: CplpClient
     let track: TrackState
 
     @State private var volume: Float
     @State private var pan: Float
+    @State private var mute: Bool
 
     init(track: TrackState) {
         self.track = track
         self._volume = State(initialValue: track.volume)
         self._pan = State(initialValue: track.pan)
+        self._mute = State(initialValue: track.mute)
     }
 
     var body: some View {
         GroupBox {
             VStack(alignment: .leading, spacing: 12) {
-                // ヘッダー: ラベル + ミュートトグル
+                // ヘッダー
                 HStack {
-                    Text(track.label)
-                        .font(.headline)
-                    Text(track.peerId)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(track.label.isEmpty ? track.peerId : track.label)
+                            .font(.headline)
+                        if !track.label.isEmpty {
+                            Text(track.peerId)
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                     Spacer()
-                    Toggle("Mute", isOn: Binding(
-                        get: { track.isMuted },
-                        set: { client.setMute(peerId: track.peerId, mute: $0) }
-                    ))
-                    .toggleStyle(.button)
-                    .tint(track.isMuted ? .red : .gray)
+                    if track.solo {
+                        Text("SOLO")
+                            .font(.caption2)
+                            .fontWeight(.bold)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.yellow.opacity(0.3))
+                            .clipShape(RoundedRectangle(cornerRadius: 4))
+                    }
                 }
 
-                // ボリュームスライダー
+                // Volume フェーダー
                 HStack {
-                    Image(systemName: "speaker.fill")
+                    Text("Vol")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(width: 30, alignment: .leading)
                     Slider(value: $volume, in: 0...1) { editing in
                         if !editing {
-                            client.setVolume(peerId: track.peerId, volume: volume)
+                            client.mixerSetVolume(peerId: track.peerId, volume: volume)
                         }
                     }
                     Text(String(format: "%.0f%%", volume * 100))
-                        .monospacedDigit()
+                        .font(.caption.monospaced())
                         .frame(width: 44, alignment: .trailing)
                 }
 
-                // パンスライダー
+                // Pan スライダー
                 HStack {
-                    Text("L")
+                    Text("Pan")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .frame(width: 30, alignment: .leading)
                     Slider(value: $pan, in: -1...1) { editing in
                         if !editing {
-                            client.setPan(peerId: track.peerId, pan: pan)
+                            client.mixerSetPan(peerId: track.peerId, pan: pan)
                         }
                     }
-                    Text("R")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                     Text(panLabel)
-                        .monospacedDigit()
+                        .font(.caption.monospaced())
                         .frame(width: 44, alignment: .trailing)
+                }
+
+                // Mute トグル
+                HStack {
+                    Toggle("Mute", isOn: $mute)
+                        .toggleStyle(.switch)
+                        .onChange(of: mute) { _, newValue in
+                            client.mixerSetMute(peerId: track.peerId, mute: newValue)
+                        }
                 }
             }
             .padding(.vertical, 4)
         }
+        .onChange(of: track.volume) { _, newValue in volume = newValue }
+        .onChange(of: track.pan) { _, newValue in pan = newValue }
+        .onChange(of: track.mute) { _, newValue in mute = newValue }
     }
 
     private var panLabel: String {

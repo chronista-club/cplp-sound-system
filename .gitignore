@@ -27,5 +27,8 @@ xcuserdata/
 *.xcworkspace/
 DerivedData/
 
+# Swift Package Manager
+.build/
+
 # FFI generated
 crates/cplp-ffi/cplp_ffi.h

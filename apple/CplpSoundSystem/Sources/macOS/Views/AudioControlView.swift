@@ -1,130 +1,132 @@
 import SwiftUI
 
-// MARK: - AudioControlView
-
-/// オーディオエンジンの Start/Stop + メーター表示 + プラグインスキャン
+/// オーディオエンジンのコントロール + レベルメーター + プラグインスキャン
 struct AudioControlView: View {
-    @Environment(CplpClient.self) private var client
+    @EnvironmentObject var client: CplpClient
+    @State private var isScanning: Bool = false
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // エンジンコントロール
+                // MARK: - オーディオエンジン ON/OFF
                 GroupBox("Audio Engine") {
-                    VStack(alignment: .leading, spacing: 12) {
+                    VStack(spacing: 16) {
                         HStack {
-                            Circle()
-                                .fill(client.audioRunning ? .green : .red)
-                                .frame(width: 10, height: 10)
-                            Text(client.audioRunning ? "Running" : "Stopped")
-                                .font(.headline)
+                            StatusIndicator(
+                                label: client.isAudioRunning ? "Running" : "Stopped",
+                                isActive: client.isAudioRunning
+                            )
                             Spacer()
-
-                            if client.audioRunning {
-                                Button("Stop") {
+                            Button(client.isAudioRunning ? "Stop" : "Start") {
+                                if client.isAudioRunning {
                                     client.stopAudio()
-                                }
-                                .buttonStyle(.bordered)
-                            } else {
-                                Button("Start") {
+                                } else {
                                     client.startAudio()
                                 }
-                                .buttonStyle(.borderedProminent)
                             }
+                            .controlSize(.large)
+                            .buttonStyle(.borderedProminent)
+                            .tint(client.isAudioRunning ? .red : .green)
+                        }
+
+                        // レベルメーター
+                        if client.isAudioRunning {
+                            VStack(spacing: 8) {
+                                MeterBar(label: "L", level: client.meterLeft)
+                                MeterBar(label: "R", level: client.meterRight)
+                            }
+                            .transition(.opacity)
                         }
                     }
                     .padding(.vertical, 4)
                 }
 
-                // メーター表示
-                GroupBox("Meters") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        MeterBar(label: "L", value: client.meterLeft)
-                        MeterBar(label: "R", value: client.meterRight)
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                // プラグインスキャン
+                // MARK: - プラグインスキャン
                 GroupBox("Plugins") {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 12) {
                         HStack {
-                            Text("CLAP Plugins")
-                                .font(.headline)
+                            Text("\(client.plugins.count) plugin(s) found")
+                                .foregroundStyle(.secondary)
                             Spacer()
-                            Button("Scan") {
+                            Button {
+                                isScanning = true
                                 client.scanPlugins()
+                                isScanning = false
+                            } label: {
+                                HStack(spacing: 4) {
+                                    if isScanning {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    }
+                                    Text("Scan")
+                                }
                             }
-                            .buttonStyle(.bordered)
+                            .disabled(isScanning)
                         }
 
-                        if client.plugins.isEmpty {
-                            Text("No plugins found. Click Scan to search.")
-                                .foregroundStyle(.secondary)
-                                .padding(.vertical, 8)
-                        } else {
+                        if !client.plugins.isEmpty {
+                            Divider()
                             ForEach(client.plugins) { plugin in
                                 HStack {
                                     Image(systemName: "puzzlepiece.extension")
-                                        .foregroundStyle(.purple)
-                                    VStack(alignment: .leading) {
+                                        .foregroundStyle(.secondary)
+                                    VStack(alignment: .leading, spacing: 2) {
                                         Text(plugin.name)
                                             .font(.body)
-                                        Text(plugin.pluginId)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
+                                        Text(plugin.id)
+                                            .font(.caption2)
+                                            .foregroundStyle(.tertiary)
                                     }
+                                    Spacer()
                                 }
+                                .padding(.vertical, 2)
                             }
                         }
                     }
                     .padding(.vertical, 4)
                 }
+
+                Spacer()
             }
-            .padding()
+            .padding(20)
         }
         .navigationTitle("Audio")
     }
 }
 
-// MARK: - MeterBar
-
-/// 水平メーターバー
+/// 水平レベルメーター
 struct MeterBar: View {
     let label: String
-    let value: Float
+    let level: Float
 
     var body: some View {
         HStack(spacing: 8) {
             Text(label)
-                .font(.caption.bold())
-                .frame(width: 16, alignment: .trailing)
+                .font(.caption.monospaced())
+                .frame(width: 16)
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    // 背景
-                    RoundedRectangle(cornerRadius: 3)
-                        .fill(.quaternary)
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color.gray.opacity(0.2))
 
-                    // メーター値
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(meterColor)
-                        .frame(width: max(0, geo.size.width * CGFloat(value)))
+                        .frame(width: max(0, geo.size.width * CGFloat(level)))
                 }
             }
             .frame(height: 12)
 
-            Text(String(format: "%.1f", value))
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .frame(width: 32, alignment: .trailing)
+            Text(String(format: "%.1f", 20 * log10(max(level, 0.0001))))
+                .font(.caption.monospaced())
+                .frame(width: 50, alignment: .trailing)
         }
     }
 
     private var meterColor: Color {
-        if value > 0.9 {
+        if level > 0.9 {
             return .red
-        } else if value > 0.7 {
+        } else if level > 0.6 {
             return .yellow
         } else {
             return .green

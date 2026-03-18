@@ -6,7 +6,7 @@ rust-version.workspace = true
 description = "C FFI ブリッジ — Swift / macOS アプリとの境界"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["lib", "staticlib"]
 
 [dependencies]
 cplp-core.workspace = true
