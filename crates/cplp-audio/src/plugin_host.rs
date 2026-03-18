@@ -39,7 +39,7 @@ pub fn scan_plugins() -> Vec<PluginInfo> {
     let mut plugins = Vec::new();
 
     for bundle_path in clack_finder::ClapFinder::from_standard_paths() {
-        match scan_bundle(&bundle_path) {
+        match scan_bundle(bundle_path.bundle_path()) {
             Ok(mut found) => plugins.append(&mut found),
             Err(e) => {
                 warn!("Failed to scan {:?}: {e}", bundle_path);
@@ -52,7 +52,7 @@ pub fn scan_plugins() -> Vec<PluginInfo> {
 }
 
 fn scan_bundle(path: &Path) -> Result<Vec<PluginInfo>> {
-    let bundle = unsafe { PluginBundle::load(path)? };
+    let bundle = unsafe { PluginEntry::load(path)? };
 
     let factory = bundle.get_plugin_factory().context("No plugin factory")?;
 
@@ -165,7 +165,7 @@ fn host_info() -> HostInfo {
 /// MIDIイベント（ringbuf で転送される固定サイズ型）
 #[derive(Debug, Clone, Copy)]
 pub struct MidiEvent {
-    /// 0x90 = NoteOn, 0x80 = NoteOff
+    /// 0x90 = NoteOn, 0x80 = NoteOff, 0xB0 = CC
     pub status: u8,
     pub key: u8,
     pub velocity: u8,
@@ -213,6 +213,15 @@ impl NoteController {
             velocity: 0,
         });
     }
+
+    /// コントロールチェンジを送信
+    pub fn control_change(&mut self, cc: u8, value: u8) {
+        let _ = self.producer.try_push(MidiEvent {
+            status: 0xB0,
+            key: cc,
+            velocity: value,
+        });
+    }
 }
 
 impl NoteReceiver {
@@ -245,6 +254,66 @@ impl NoteReceiver {
                 }
                 _ => {}
             }
+        }
+    }
+}
+
+// ─── AudioModule 用 MIDI チャネル ──────────────────────────────
+
+/// cplp_core::MidiEvent を lock-free で AudioModule に送信するコントローラ
+///
+/// Looper 等の AudioModule への MIDI 転送に使用。
+/// NoteController（CLAP 専用）とは別系統。
+pub struct MidiEventSender {
+    producer: ringbuf::HeapProd<cplp_core::MidiEvent>,
+}
+
+/// AudioModule 側で MidiEvent を受信する端
+pub struct MidiEventReceiver {
+    consumer: ringbuf::HeapCons<cplp_core::MidiEvent>,
+}
+
+/// MidiEventSender / MidiEventReceiver のペアを作成する
+pub fn midi_event_channel(capacity: usize) -> (MidiEventSender, MidiEventReceiver) {
+    let rb = HeapRb::<cplp_core::MidiEvent>::new(capacity);
+    let (prod, cons) = rb.split();
+    (
+        MidiEventSender { producer: prod },
+        MidiEventReceiver { consumer: cons },
+    )
+}
+
+impl MidiEventSender {
+    /// NoteOn を送信
+    pub fn note_on(&mut self, note: u8, velocity: u8) {
+        let _ = self
+            .producer
+            .try_push(cplp_core::MidiEvent::NoteOn { note, velocity });
+    }
+
+    /// NoteOff を送信
+    pub fn note_off(&mut self, note: u8) {
+        let _ = self
+            .producer
+            .try_push(cplp_core::MidiEvent::NoteOff { note });
+    }
+
+    /// ControlChange を送信
+    pub fn control_change(&mut self, cc: u8, value: u8) {
+        let _ = self
+            .producer
+            .try_push(cplp_core::MidiEvent::ControlChange { cc, value });
+    }
+}
+
+impl MidiEventReceiver {
+    /// 保留中の全イベントを drain して処理する
+    pub fn drain<F>(&mut self, mut handler: F)
+    where
+        F: FnMut(cplp_core::MidiEvent),
+    {
+        while let Some(evt) = self.consumer.try_pop() {
+            handler(evt);
         }
     }
 }
@@ -652,7 +721,7 @@ pub fn load_plugin(
     let plugin_id = CString::new(plugin_info.id.as_str()).context("Invalid plugin ID")?;
 
     let bundle = unsafe {
-        PluginBundle::load(&plugin_info.bundle_path).context("Failed to load plugin bundle")?
+        PluginEntry::load(&plugin_info.bundle_path).context("Failed to load plugin bundle")?
     };
 
     let (sender, receiver) = mpsc::channel();

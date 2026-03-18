@@ -1,0 +1,28 @@
+#usda 1.0
+(
+    defaultPrim = "Stage"
+    upAxis = "Y"
+)
+
+def Xform "Stage" {
+    def Mesh "Floor" {
+        float3[] points = [(-5, 0, -5), (5, 0, -5), (5, 0, 5), (-5, 0, 5)]
+        int[] faceVertexCounts = [4]
+        int[] faceVertexIndices = [0, 1, 2, 3]
+        color3f[] primvars:displayColor = [(0.2, 0.2, 0.25)]
+    }
+
+    def Sphere "Player1" {
+        double radius = 0.5
+        double3 xformOp:translate = (0, 0.5, 0)
+        token[] xformOpOrder = ["xformOp:translate"]
+        color3f[] primvars:displayColor = [(0.1, 0.6, 1.0)]
+    }
+
+    def Sphere "Player2" {
+        double radius = 0.5
+        double3 xformOp:translate = (2, 0.5, -1)
+        token[] xformOpOrder = ["xformOp:translate"]
+        color3f[] primvars:displayColor = [(1.0, 0.3, 0.2)]
+    }
+}

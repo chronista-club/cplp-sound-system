@@ -4,7 +4,7 @@ members = [
     "crates/cplp-audio",
     "crates/cplp-network",
     "crates/cplp-session",
-    "crates/cplp-app",
+    "apps/cplp-app",
     "crates/cplp-lobby",
     "crates/cplp-hud",
     "crates/cplp-cadence",
@@ -12,6 +12,8 @@ members = [
     "crates/cplp-plug-beat-machine",
     "crates/cplp-plug-looper",
     "crates/cplp-flux",
+    "crates/cplp-scene",
+    "crates/cplp-ffi",
 ]
 resolver = "2"
 

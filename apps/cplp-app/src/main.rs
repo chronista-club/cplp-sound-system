@@ -9,8 +9,9 @@ use clap::{Parser, Subcommand};
 use cplp_audio::engine::AudioEngine;
 use cplp_audio::midi_input::{self, MidiInputManager};
 use cplp_audio::plugin_host;
+use cplp_core::AudioModule;
 use cplp_core::config::{AppConfig, AudioConfig, NetworkConfig};
-use cplp_hud::state::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
+use cplp_core::realtime::{AudioMeters, PcmSnapshot, PcmWriter, SessionSnapshot};
 use cplp_hud::{HudAction, HudBridge, HudContext, HudLiveData, PluginEntry, app_status};
 use cplp_network::control::{CommandMode, ControlEvent};
 use cplp_session::{LobbyClient, LobbyConfig, SessionManager, SessionState};
@@ -45,6 +46,12 @@ enum Command {
         /// 再生時間 (秒、0 = 無制限)
         #[arg(short, long, default_value_t = 0)]
         duration: u64,
+        /// ルーパーを有効化（シンセ出力をループ録音・再生）
+        #[arg(long)]
+        looper: bool,
+        /// ルーパー専用 MIDI ポート番号（LPD8 等、省略時は --midi と共有）
+        #[arg(long)]
+        looper_midi: Option<usize>,
     },
     /// セッション管理（P2P 直接接続・ロビー経由）
     Session {
@@ -58,6 +65,22 @@ enum Command {
     },
     /// HUD（ライブ演奏向け GUI）を起動
     Hud,
+    /// ギグ管理（ライブパフォーマンス）
+    Gig {
+        #[command(subcommand)]
+        cmd: GigCmd,
+    },
+}
+
+/// ギグサブコマンド
+#[derive(Subcommand)]
+enum GigCmd {
+    /// ギグを開始（メインウィンドウを起動）
+    Start,
+    /// ギグを停止
+    Stop,
+    /// ギグから離脱
+    Leave,
 }
 
 /// セッションサブコマンド
@@ -220,6 +243,8 @@ fn main() -> anyhow::Result<()> {
             midi,
             gui,
             duration,
+            looper,
+            looper_midi,
         } => {
             let plugins = plugin_host::scan_plugins();
 
@@ -266,35 +291,123 @@ fn main() -> anyhow::Result<()> {
 
             let mut engine = AudioEngine::new(config.clone());
 
-            // エフェクトチェイン: synth → fx → output
-            if let Some((mut fx_processor, _fx_handle)) = fx_state {
-                let channels = config.channels as usize;
-                let buf_size = config.buffer_size as usize * channels;
-                engine.start(move |buf: &mut [f32]| {
-                    // シンセ → 中間バッファ
-                    let mut synth_out = vec![0.0f32; buf.len().max(buf_size)];
-                    synth_processor.process(&mut synth_out[..buf.len()]);
+            // Looper 用 MIDI チャネル（--looper 時のみ）
+            // synth MIDI: NoteController → CLAP シンセ
+            // looper MIDI: MidiEventSender → MultiTrackLooper
+            // looper_midi MIDI: MidiEventSender → MultiTrackLooper（専用デバイス）
+            let (midi_event_tx, looper_midi_tx) = if looper {
+                // メイン MIDI チャネル（Keystage 等から looper へ）
+                let (tx, rx) = plugin_host::midi_event_channel(256);
 
-                    // 中間バッファ → エフェクト → 出力
-                    fx_processor.process_effect(&synth_out[..buf.len()], buf);
-                })?;
+                // ルーパー専用 MIDI チャネル（LPD8 等、--looper-midi 指定時）
+                let (lpd_tx, lpd_rx) = if looper_midi.is_some() {
+                    let (t, r) = plugin_host::midi_event_channel(256);
+                    (Some(t), Some(r))
+                } else {
+                    (None, None)
+                };
+
+                let mut looper_instance =
+                    cplp_plug_looper::MultiTrackLooper::new(config.sample_rate as f32);
+
+                // エフェクトチェイン: synth → (fx) → looper → output
+                if let Some((mut fx_processor, _fx_handle)) = fx_state {
+                    let channels = config.channels as usize;
+                    let buf_size = config.buffer_size as usize * channels;
+                    let mut midi_rx = rx;
+                    let mut lpd_midi_rx = lpd_rx;
+                    engine.start(move |buf: &mut [f32]| {
+                        let mut synth_out = vec![0.0f32; buf.len().max(buf_size)];
+                        synth_processor.process(&mut synth_out[..buf.len()]);
+
+                        let mut fx_out = vec![0.0f32; buf.len()];
+                        fx_processor.process_effect(&synth_out[..buf.len()], &mut fx_out);
+
+                        // MIDI イベントを Looper に転送（メイン + LPD8）
+                        midi_rx.drain(|evt| looper_instance.handle_midi(evt));
+                        if let Some(ref mut lpd) = lpd_midi_rx {
+                            lpd.drain(|evt| looper_instance.handle_midi(evt));
+                        }
+
+                        looper_instance.process_replacing(&fx_out, buf);
+                    })?;
+                } else {
+                    let mut midi_rx = rx;
+                    let mut lpd_midi_rx = lpd_rx;
+                    engine.start(move |buf: &mut [f32]| {
+                        let mut synth_out = vec![0.0f32; buf.len()];
+                        synth_processor.process(&mut synth_out);
+
+                        midi_rx.drain(|evt| looper_instance.handle_midi(evt));
+                        if let Some(ref mut lpd) = lpd_midi_rx {
+                            lpd.drain(|evt| looper_instance.handle_midi(evt));
+                        }
+
+                        looper_instance.process_replacing(&synth_out, buf);
+                    })?;
+                }
+
+                println!(
+                    "ルーパー有効 — C3:録音 D3:停止 E3:再生 F3:クリア"
+                );
+                (Some(tx), lpd_tx)
             } else {
-                engine.start(move |buf: &mut [f32]| {
-                    synth_processor.process(buf);
-                })?;
-            }
+                // ルーパーなし: 従来のエフェクトチェイン
+                if let Some((mut fx_processor, _fx_handle)) = fx_state {
+                    let channels = config.channels as usize;
+                    let buf_size = config.buffer_size as usize * channels;
+                    engine.start(move |buf: &mut [f32]| {
+                        let mut synth_out = vec![0.0f32; buf.len().max(buf_size)];
+                        synth_processor.process(&mut synth_out[..buf.len()]);
+                        fx_processor.process_effect(&synth_out[..buf.len()], buf);
+                    })?;
+                } else {
+                    engine.start(move |buf: &mut [f32]| {
+                        synth_processor.process(buf);
+                    })?;
+                }
+                (None, None)
+            };
 
             println!("プラグイン '{}' を再生中...", plugin.name);
 
-            // MIDI or テストノートを先にセットアップ（run_gui はブロックするため）
-            let _midi_conn = if let Some(port_index) = midi {
-                let conn = MidiInputManager::connect(port_index, note_ctrl)?;
-                println!("MIDI 入力接続済み — キーボードで演奏してください");
-                Some(conn)
-            } else {
-                println!("C4 (MIDI note 60) テストノートを送信...");
-                note_ctrl.note_on(60, 100);
-                None
+            // MIDI セットアップ（run_gui はブロックするため先に接続）
+            let _midi_conns: Vec<MidiInputManager> = {
+                let mut conns = Vec::new();
+
+                // ルーパー専用 MIDI ポート（LPD8 等）
+                if let Some(looper_port) = looper_midi {
+                    if let Some(lpd_tx) = looper_midi_tx {
+                        // シンセに送らない: ダミー NoteController
+                        let (dummy_ctrl, _dummy_recv) = plugin_host::note_channel(4);
+                        let conn = MidiInputManager::connect(
+                            looper_port,
+                            dummy_ctrl,
+                            Some(lpd_tx),
+                        )?;
+                        conns.push(conn);
+                        println!(
+                            "ルーパー専用 MIDI ポート {} 接続済み（LPD8）",
+                            looper_port
+                        );
+                    }
+                }
+
+                // メイン MIDI ポート（Keystage 等）
+                if let Some(port_index) = midi {
+                    let conn = MidiInputManager::connect(
+                        port_index,
+                        note_ctrl,
+                        midi_event_tx,
+                    )?;
+                    println!("MIDI 入力接続済み — キーボードで演奏してください");
+                    conns.push(conn);
+                } else {
+                    println!("C4 (MIDI note 60) テストノートを送信...");
+                    note_ctrl.note_on(60, 100);
+                }
+
+                conns
             };
 
             if gui {
@@ -416,6 +529,17 @@ fn main() -> anyhow::Result<()> {
         Command::Hud => {
             run_interactive_hud()?;
         }
+        Command::Gig { cmd } => match cmd {
+            GigCmd::Start => {
+                cplp_scene::run()?;
+            }
+            GigCmd::Stop => {
+                println!("gig stop: ギグを停止します（未実装）");
+            }
+            GigCmd::Leave => {
+                println!("gig leave: ギグから離脱します（未実装）");
+            }
+        },
         Command::Device { cmd: device_cmd } => match device_cmd {
             DeviceCmd::Scan => {
                 let plugins = plugin_host::scan_plugins();
@@ -855,7 +979,7 @@ fn setup_session_audio(
 
     // MIDI 接続
     let midi_conn = if let Some(port_index) = midi_port {
-        let conn = MidiInputManager::connect(port_index, note_ctrl)?;
+        let conn = MidiInputManager::connect(port_index, note_ctrl, None)?;
         println!("MIDI 入力接続済み");
         Some(conn)
     } else {
@@ -1094,7 +1218,7 @@ fn run_interactive_hud() -> anyhow::Result<()> {
 
                     // MIDI 接続
                     let midi_conn = if let Some(port_idx) = midi_port_index {
-                        match MidiInputManager::connect(port_idx, note_ctrl) {
+                        match MidiInputManager::connect(port_idx, note_ctrl, None) {
                             Ok(conn) => Some(conn),
                             Err(e) => {
                                 tracing::warn!("MIDI connect failed: {e}");

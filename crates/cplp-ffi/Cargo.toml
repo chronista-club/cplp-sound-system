@@ -1,0 +1,27 @@
+[package]
+name = "cplp-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "C FFI ブリッジ — Swift / macOS アプリとの境界"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+cplp-core.workspace = true
+cplp-audio.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+atomic_float.workspace = true
+cplp-scene = { path = "../cplp-scene" }
+wgpu.workspace = true
+pollster.workspace = true
+
+[dev-dependencies]
+serial_test = "3"
+
+[build-dependencies]
+cbindgen = "0.28"

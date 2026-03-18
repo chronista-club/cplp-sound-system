@@ -291,6 +291,195 @@ impl AudioModule for Looper {
     }
 }
 
+// ─── マルチトラックルーパー ──────────────────────────────────
+
+/// CC 70 でアクティブトラックを切り替える（キーボード MIDI 操作用）
+const CC_ACTIVE_TRACK: u8 = 70;
+
+/// トラック数
+const NUM_TRACKS: usize = 5;
+
+/// LPD8 パッドマッピング
+mod lpd8 {
+    /// Pad 1-5 (Note 36-40): Track 1-5 Rec/Play トグル
+    pub const PAD_TRACK_START: u8 = 36;
+    pub const PAD_TRACK_END: u8 = 40;
+    /// Pad 6 (Note 41): Stop All
+    pub const PAD_STOP_ALL: u8 = 41;
+    /// Pad 7 (Note 42): Clear All
+    pub const PAD_CLEAR_ALL: u8 = 42;
+    /// CC 1-5: Track 1-5 ゲイン
+    pub const CC_TRACK_GAIN_START: u8 = 1;
+    pub const CC_TRACK_GAIN_END: u8 = 5;
+    /// CC 6: マスターゲイン（将来用）
+    pub const CC_MASTER_GAIN: u8 = 6;
+}
+
+/// マルチトラックルーパー — 最大5トラックを独立操作
+///
+/// active_track で操作対象を切り替え、全トラックの出力をミックスする。
+/// CC 70 (値 0-4) でアクティブトラックを変更。
+pub struct MultiTrackLooper {
+    tracks: Vec<Looper>,
+    active_track: usize,
+    sample_rate: f32,
+}
+
+impl MultiTrackLooper {
+    pub fn new(sample_rate: f32) -> Self {
+        let tracks = (0..NUM_TRACKS).map(|_| Looper::new(sample_rate)).collect();
+        Self {
+            tracks,
+            active_track: 0,
+            sample_rate,
+        }
+    }
+
+    pub fn sample_rate(&self) -> f32 {
+        self.sample_rate
+    }
+
+    pub fn active_track(&self) -> usize {
+        self.active_track
+    }
+
+    pub fn track(&self, index: usize) -> Option<&Looper> {
+        self.tracks.get(index)
+    }
+
+    pub fn num_tracks(&self) -> usize {
+        self.tracks.len()
+    }
+
+    /// Rec/Play トグル: Empty→Rec, Recording→Stop→Play, Playing→Stop, Stopped→Play
+    fn toggle_rec_play(&mut self, track_idx: usize) {
+        if track_idx >= self.tracks.len() {
+            return;
+        }
+        match self.tracks[track_idx].state() {
+            LooperState::Empty => {
+                self.tracks[track_idx].trigger_action(params::RECORD);
+            }
+            LooperState::Recording | LooperState::Overdubbing => {
+                self.tracks[track_idx].trigger_action(params::STOP);
+            }
+            LooperState::Stopped => {
+                self.tracks[track_idx].trigger_action(params::PLAY);
+            }
+            LooperState::Playing => {
+                self.tracks[track_idx].trigger_action(params::STOP);
+            }
+        }
+    }
+
+    /// 全トラック停止
+    fn stop_all(&mut self) {
+        for track in &mut self.tracks {
+            track.trigger_action(params::STOP);
+        }
+    }
+
+    /// 全トラッククリア
+    fn clear_all(&mut self) {
+        for track in &mut self.tracks {
+            track.trigger_action(params::CLEAR);
+        }
+    }
+}
+
+impl AudioModule for MultiTrackLooper {
+    fn process(&mut self, output: &mut [f32]) {
+        output.fill(0.0);
+        let mut track_buf = vec![0.0f32; output.len()];
+        for track in &mut self.tracks {
+            track_buf.fill(0.0);
+            track.process(&mut track_buf);
+            for (o, t) in output.iter_mut().zip(track_buf.iter()) {
+                *o += t;
+            }
+        }
+    }
+
+    fn process_replacing(&mut self, input: &[f32], output: &mut [f32]) {
+        let len = input.len().min(output.len());
+
+        // active_track のみに入力を送って録音
+        // 他のトラックは再生のみ
+        let mut active_out = vec![0.0f32; len];
+        self.tracks[self.active_track].process_replacing(&input[..len], &mut active_out);
+
+        // 残りのトラックの再生出力をミックス
+        output[..len].copy_from_slice(&active_out);
+        let mut track_buf = vec![0.0f32; len];
+        for (i, track) in self.tracks.iter_mut().enumerate() {
+            if i == self.active_track {
+                continue;
+            }
+            track_buf.fill(0.0);
+            track.process(&mut track_buf);
+            for j in 0..len {
+                output[j] += track_buf[j];
+            }
+        }
+    }
+
+    fn handle_midi(&mut self, event: MidiEvent) {
+        match event {
+            // CC: トラック切替 / ゲイン / マスターゲイン
+            MidiEvent::ControlChange { cc, value } => {
+                if cc == CC_ACTIVE_TRACK {
+                    self.active_track = (value as usize).min(NUM_TRACKS - 1);
+                } else if cc >= lpd8::CC_TRACK_GAIN_START && cc <= lpd8::CC_TRACK_GAIN_END
+                {
+                    let track_idx = (cc - lpd8::CC_TRACK_GAIN_START) as usize;
+                    if track_idx < self.tracks.len() {
+                        // CC value 0-127 → gain 0.0-2.0
+                        let gain = (value as f32 / 127.0) * 2.0;
+                        self.tracks[track_idx].set_param(params::LOOP_GAIN, gain);
+                    }
+                } else if cc == lpd8::CC_MASTER_GAIN {
+                    // マスターゲイン: 全トラックの loop_gain を一括設定
+                    let gain = (value as f32 / 127.0) * 2.0;
+                    for track in &mut self.tracks {
+                        track.set_param(params::LOOP_GAIN, gain);
+                    }
+                }
+            }
+            // NoteOn: LPD8 パッド or キーボード操作
+            MidiEvent::NoteOn { note, velocity } if velocity > 0 => {
+                if note >= lpd8::PAD_TRACK_START && note <= lpd8::PAD_TRACK_END {
+                    // Pad 1-5: Rec/Play トグル
+                    let track_idx = (note - lpd8::PAD_TRACK_START) as usize;
+                    self.toggle_rec_play(track_idx);
+                } else if note == lpd8::PAD_STOP_ALL {
+                    self.stop_all();
+                } else if note == lpd8::PAD_CLEAR_ALL {
+                    self.clear_all();
+                } else {
+                    // C3/D3/E3/F3 → active_track に転送
+                    self.tracks[self.active_track].handle_midi(event);
+                }
+            }
+            _ => {
+                self.tracks[self.active_track].handle_midi(event);
+            }
+        }
+    }
+
+    fn set_param(&mut self, id: u32, value: f32) {
+        self.tracks[self.active_track].set_param(id, value);
+    }
+
+    fn info(&self) -> ModuleInfo {
+        ModuleInfo {
+            id: "cplp.multitrack-looper".to_string(),
+            name: "Echo Chamber MT".to_string(),
+            vendor: "cplp".to_string(),
+            category: ModuleCategory::Effect,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -615,5 +804,319 @@ mod tests {
         looper.set_param(params::STOP, 1.0);
         // Overdub → Playing
         assert_eq!(looper.state(), LooperState::Playing);
+    }
+
+    // ─── MultiTrackLooper テスト ──────────────────────────────
+
+    #[test]
+    fn multitrack_new() {
+        let mt = MultiTrackLooper::new(44100.0);
+        assert_eq!(mt.num_tracks(), 5);
+        assert_eq!(mt.active_track(), 0);
+        for i in 0..5 {
+            assert_eq!(mt.track(i).unwrap().state(), LooperState::Empty);
+        }
+    }
+
+    #[test]
+    fn multitrack_record_on_active_track() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Track 0 に録音
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        }); // REC
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Recording);
+        assert_eq!(mt.track(1).unwrap().state(), LooperState::Empty);
+
+        let input = [1.0; 4];
+        let mut out = [0.0; 4];
+        mt.process_replacing(&input, &mut out);
+
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 62,
+            velocity: 100,
+        }); // STOP
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Stopped);
+        assert_eq!(mt.track(0).unwrap().loop_length(), 4);
+    }
+
+    #[test]
+    fn multitrack_switch_active_track() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+        assert_eq!(mt.active_track(), 0);
+
+        // CC 70 = 2 → Track 2 に切替
+        mt.handle_midi(MidiEvent::ControlChange {
+            cc: CC_ACTIVE_TRACK,
+            value: 2,
+        });
+        assert_eq!(mt.active_track(), 2);
+
+        // Track 2 に録音
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(2).unwrap().state(), LooperState::Recording);
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Empty);
+    }
+
+    #[test]
+    fn multitrack_clamp_track_index() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // CC 70 = 127 → clamped to 4
+        mt.handle_midi(MidiEvent::ControlChange {
+            cc: CC_ACTIVE_TRACK,
+            value: 127,
+        });
+        assert_eq!(mt.active_track(), 4);
+    }
+
+    #[test]
+    fn multitrack_mix_all_tracks() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Track 0: 録音 [1.0, 1.0]
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        });
+        let input = [1.0; 2];
+        let mut out = [0.0; 2];
+        mt.process_replacing(&input, &mut out);
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 62,
+            velocity: 100,
+        }); // STOP
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 64,
+            velocity: 100,
+        }); // PLAY
+
+        // Track 1 に切替 → 録音 [0.5, 0.5]
+        mt.handle_midi(MidiEvent::ControlChange {
+            cc: CC_ACTIVE_TRACK,
+            value: 1,
+        });
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        });
+        let input2 = [0.5; 2];
+        let mut out2 = [0.0; 2];
+        mt.process_replacing(&input2, &mut out2);
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 62,
+            velocity: 100,
+        }); // STOP
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 64,
+            velocity: 100,
+        }); // PLAY
+
+        // 両方再生 → ミックスされる
+        let silence = [0.0; 2];
+        let mut mixed = [0.0; 2];
+        mt.process_replacing(&silence, &mut mixed);
+
+        // Track 0 (1.0) + Track 1 (0.5) = 1.5
+        assert!((mixed[0] - 1.5).abs() < 1e-5);
+        assert!((mixed[1] - 1.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn multitrack_passthrough_when_empty() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+        let input = [0.7, -0.3];
+        let mut out = [0.0; 2];
+        mt.process_replacing(&input, &mut out);
+        assert_eq!(out, input);
+    }
+
+    // ─── LPD8 マッピングテスト ──────────────────────────────
+
+    #[test]
+    fn lpd8_pad_toggle_rec_play() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Pad 1 (Note 36) → Track 0: Empty → Recording
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 36,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Recording);
+
+        // 少し録音
+        let input = [0.5; 4];
+        let mut out = [0.0; 4];
+        mt.process_replacing(&input, &mut out);
+
+        // Pad 1 再度 → Recording → Stopped
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 36,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Stopped);
+
+        // Pad 1 再度 → Stopped → Playing
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 36,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Playing);
+
+        // Pad 1 再度 → Playing → Stopped
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 36,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Stopped);
+    }
+
+    #[test]
+    fn lpd8_pad_targets_correct_track() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Pad 3 (Note 38) → Track 2
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 38,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(2).unwrap().state(), LooperState::Recording);
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Empty);
+
+        // Pad 5 (Note 40) → Track 4
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 40,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(4).unwrap().state(), LooperState::Recording);
+    }
+
+    #[test]
+    fn lpd8_stop_all() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Track 0, 1 を録音 → 再生
+        for track_note in [36u8, 37] {
+            mt.handle_midi(MidiEvent::NoteOn {
+                note: track_note,
+                velocity: 100,
+            });
+            let input = [0.5; 4];
+            let mut out = [0.0; 4];
+            mt.process_replacing(&input, &mut out);
+            // toggle: Recording → Stopped
+            mt.handle_midi(MidiEvent::NoteOn {
+                note: track_note,
+                velocity: 100,
+            });
+            // toggle: Stopped → Playing
+            mt.handle_midi(MidiEvent::NoteOn {
+                note: track_note,
+                velocity: 100,
+            });
+        }
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Playing);
+        assert_eq!(mt.track(1).unwrap().state(), LooperState::Playing);
+
+        // Pad 6 (Note 41) → Stop All
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 41,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Stopped);
+        assert_eq!(mt.track(1).unwrap().state(), LooperState::Stopped);
+    }
+
+    #[test]
+    fn lpd8_clear_all() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Track 0 に録音
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 36,
+            velocity: 100,
+        });
+        let input = [0.5; 4];
+        let mut out = [0.0; 4];
+        mt.process_replacing(&input, &mut out);
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 36,
+            velocity: 100,
+        }); // Stop
+
+        // Pad 7 (Note 42) → Clear All
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 42,
+            velocity: 100,
+        });
+        assert_eq!(mt.track(0).unwrap().state(), LooperState::Empty);
+        assert_eq!(mt.track(0).unwrap().loop_length(), 0);
+    }
+
+    #[test]
+    fn lpd8_cc_track_gain() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Track 0 に録音
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        }); // REC via C3
+        let input = [1.0; 4];
+        let mut out = [0.0; 4];
+        mt.process_replacing(&input, &mut out);
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 62,
+            velocity: 100,
+        }); // STOP
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 64,
+            velocity: 100,
+        }); // PLAY
+
+        // CC 1 = Track 0 ゲイン → 0 (ミュート)
+        mt.handle_midi(MidiEvent::ControlChange { cc: 1, value: 0 });
+
+        let silence = [0.0; 4];
+        let mut play_out = [0.0; 4];
+        mt.process_replacing(&silence, &mut play_out);
+        // ゲイン 0 なので無音
+        assert!(play_out[0].abs() < 1e-5);
+    }
+
+    #[test]
+    fn lpd8_cc_master_gain() {
+        let mut mt = MultiTrackLooper::new(44100.0);
+
+        // Track 0 に録音
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 60,
+            velocity: 100,
+        });
+        let input = [1.0; 2];
+        let mut out = [0.0; 2];
+        mt.process_replacing(&input, &mut out);
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 62,
+            velocity: 100,
+        });
+        mt.handle_midi(MidiEvent::NoteOn {
+            note: 64,
+            velocity: 100,
+        });
+
+        // CC 6 = マスターゲイン → 64 (約半分)
+        mt.handle_midi(MidiEvent::ControlChange { cc: 6, value: 64 });
+
+        let silence = [0.0; 2];
+        let mut play_out = [0.0; 2];
+        mt.process_replacing(&silence, &mut play_out);
+        // 64/127 * 2.0 ≈ 1.008 ゲイン → ほぼ 1.0
+        assert!(play_out[0] > 0.9 && play_out[0] < 1.1);
     }
 }

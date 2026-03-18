@@ -4,7 +4,7 @@ use anyhow::{Context, Result, bail};
 use midir::{MidiInput, MidiInputConnection};
 use tracing::info;
 
-use crate::plugin_host::NoteController;
+use crate::plugin_host::{MidiEventSender, NoteController};
 
 /// MIDI 入力マネージャ
 ///
@@ -28,7 +28,13 @@ pub fn list_midi_ports() -> Result<Vec<String>> {
 
 impl MidiInputManager {
     /// 指定ポート（インデックス）に接続し、MIDI メッセージを NoteController に転送
-    pub fn connect(port_index: usize, note_ctrl: NoteController) -> Result<Self> {
+    ///
+    /// `midi_event_tx` を渡すと、Note/CC を AudioModule (Looper等) にも転送する。
+    pub fn connect(
+        port_index: usize,
+        note_ctrl: NoteController,
+        midi_event_tx: Option<MidiEventSender>,
+    ) -> Result<Self> {
         let midi_in = MidiInput::new("cplp-midi").context("MIDI 入力の初期化に失敗")?;
 
         let ports = midi_in.ports();
@@ -48,6 +54,7 @@ impl MidiInputManager {
         // Mutex でラップ: midir コールバックは FnMut + Send を要求
         // MIDIスレッドのみが触るので contention はゼロ
         let note_ctrl = Mutex::new(note_ctrl);
+        let midi_event_tx = Mutex::new(midi_event_tx);
 
         let connection = midi_in
             .connect(
@@ -56,6 +63,11 @@ impl MidiInputManager {
                 move |_timestamp, message, _| {
                     if let Ok(mut ctrl) = note_ctrl.lock() {
                         handle_midi_message(message, &mut ctrl);
+                    }
+                    if let Ok(mut tx_guard) = midi_event_tx.lock() {
+                        if let Some(ref mut tx) = *tx_guard {
+                            forward_midi_event(message, tx);
+                        }
                     }
                 },
                 (),
@@ -68,7 +80,11 @@ impl MidiInputManager {
     }
 
     /// ポート名で検索して接続
-    pub fn connect_by_name(name: &str, note_ctrl: NoteController) -> Result<Self> {
+    pub fn connect_by_name(
+        name: &str,
+        note_ctrl: NoteController,
+        midi_event_tx: Option<MidiEventSender>,
+    ) -> Result<Self> {
         let midi_in = MidiInput::new("cplp-midi").context("MIDI 入力の初期化に失敗")?;
 
         let ports = midi_in.ports();
@@ -85,19 +101,22 @@ impl MidiInputManager {
         match found_index {
             Some(idx) => {
                 drop(midi_in);
-                Self::connect(idx, note_ctrl)
+                Self::connect(idx, note_ctrl, midi_event_tx)
             }
             None => bail!("'{}' を含む MIDI ポートが見つかりません", name),
         }
     }
 
     /// 最初に見つかった MIDI 入力ポートに接続
-    pub fn connect_first(note_ctrl: NoteController) -> Result<Self> {
-        Self::connect(0, note_ctrl)
+    pub fn connect_first(
+        note_ctrl: NoteController,
+        midi_event_tx: Option<MidiEventSender>,
+    ) -> Result<Self> {
+        Self::connect(0, note_ctrl, midi_event_tx)
     }
 }
 
-/// MIDI メッセージを解析して NoteController に転送
+/// MIDI メッセージを解析して NoteController (CLAP シンセ用) に転送
 fn handle_midi_message(message: &[u8], note_ctrl: &mut NoteController) {
     if message.len() < 3 {
         return;
@@ -117,6 +136,37 @@ fn handle_midi_message(message: &[u8], note_ctrl: &mut NoteController) {
         }
         0x80 => {
             note_ctrl.note_off(key);
+        }
+        0xB0 => {
+            note_ctrl.control_change(key, velocity);
+        }
+        _ => {}
+    }
+}
+
+/// MIDI メッセージを MidiEventSender (AudioModule 用) に転送
+fn forward_midi_event(message: &[u8], tx: &mut MidiEventSender) {
+    if message.len() < 3 {
+        return;
+    }
+
+    let status = message[0] & 0xF0;
+    let key = message[1];
+    let velocity = message[2];
+
+    match status {
+        0x90 => {
+            if velocity > 0 {
+                tx.note_on(key, velocity);
+            } else {
+                tx.note_off(key);
+            }
+        }
+        0x80 => {
+            tx.note_off(key);
+        }
+        0xB0 => {
+            tx.control_change(key, velocity);
         }
         _ => {}
     }

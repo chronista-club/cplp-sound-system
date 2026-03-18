@@ -13,3 +13,18 @@ CPLP_LOG=dev ./target/release/cplp hud --log-file /tmp/cplp-hud.log &
 echo "PID: $!"
 echo "Log: /tmp/cplp-hud.log (JSON Lines)"
 """
+
+[tasks."mac:build"]
+description = "macOS アプリをビルド（cargo + xcodebuild）"
+run = """
+cargo build --release -p cplp-ffi --quiet
+cd apps/macos && xcodebuild -project CplpMac.xcodeproj -scheme CplpMac -configuration Debug build 2>&1 | tail -3
+"""
+
+[tasks."mac:run"]
+description = "macOS アプリをビルドして起動"
+run = """
+cargo build --release -p cplp-ffi --quiet
+cd apps/macos && xcodebuild -project CplpMac.xcodeproj -scheme CplpMac -configuration Debug build 2>&1 | tail -3
+open ~/Library/Developer/Xcode/DerivedData/CplpMac-*/Build/Products/Debug/CPLP\\ Sound\\ System.app
+"""

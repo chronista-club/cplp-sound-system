@@ -20,3 +20,12 @@
 
 # Worktrees
 .worktrees/
+
+# Xcode
+*.xcodeproj/
+xcuserdata/
+*.xcworkspace/
+DerivedData/
+
+# FFI generated
+crates/cplp-ffi/cplp_ffi.h

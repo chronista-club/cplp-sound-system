@@ -1,0 +1,14 @@
+[package]
+name = "cplp-scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "3D ギグシーン（wgpu + USD ベース）"
+
+[dependencies]
+wgpu.workspace = true
+winit.workspace = true
+pollster.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+bytemuck.workspace = true

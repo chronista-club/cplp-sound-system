@@ -1,0 +1,69 @@
+name: CplpMac
+options:
+  bundleIdPrefix: club.chronista.cplp
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+
+targets:
+  CplpMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: CplpMac
+        excludes:
+          - "**/*.h"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: club.chronista.cplp.mac
+        PRODUCT_NAME: "CPLP Sound System"
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "0.1.0"
+        INFOPLIST_FILE: CplpMac/Info.plist
+        SWIFT_OBJC_BRIDGING_HEADER: CplpMac/CplpMac-Bridging-Header.h
+        # --- コード署名 & Hardened Runtime ---
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "Apple Development"
+        DEVELOPMENT_TEAM: "${CPLP_DEVELOPMENT_TEAM}"
+        CODE_SIGN_ENTITLEMENTS: CplpMac/CplpMac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        # Rust FFI ヘッダーの検索パス
+        HEADER_SEARCH_PATHS:
+          - "$(BUILT_PRODUCTS_DIR)"
+          - "$(SRCROOT)/../../crates/cplp-ffi"
+        # Rust dylib の検索パス
+        LIBRARY_SEARCH_PATHS:
+          - "$(BUILT_PRODUCTS_DIR)"
+          - "$(SRCROOT)/../../target/debug"
+          - "$(SRCROOT)/../../target/release"
+          - "$(SRCROOT)/../../target/aarch64-apple-darwin/debug"
+          - "$(SRCROOT)/../../target/aarch64-apple-darwin/release"
+        OTHER_LDFLAGS:
+          - "-lcplp_ffi"
+        # dylib を .app/Contents/Frameworks にコピーするため
+        LD_RUNPATH_SEARCH_PATHS:
+          - "@executable_path/../Frameworks"
+          - "@loader_path/../Frameworks"
+    preBuildScripts:
+      - name: "Build Rust FFI"
+        script: |
+          "${PROJECT_DIR}/scripts/build-rust.sh"
+        basedOnDependencyAnalysis: false
+    postCompileScripts:
+      - name: "Embed & Sign Rust dylib"
+        script: |
+          mkdir -p "${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}"
+          cp "${BUILT_PRODUCTS_DIR}/libcplp_ffi.dylib" "${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/"
+          # Frameworks にコピー後、Hardened Runtime 付きで再署名
+          SIGN_IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+          codesign --force --sign "${SIGN_IDENTITY}" \
+              --timestamp \
+              --options runtime \
+              "${BUILT_PRODUCTS_DIR}/${FRAMEWORKS_FOLDER_PATH}/libcplp_ffi.dylib"
+        basedOnDependencyAnalysis: false

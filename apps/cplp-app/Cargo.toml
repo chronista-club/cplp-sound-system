@@ -14,8 +14,10 @@ cplp-core.workspace = true
 cplp-audio.workspace = true
 cplp-network.workspace = true
 cplp-session.workspace = true
-cplp-hud = { path = "../cplp-hud" }
-cplp-flux = { path = "../cplp-flux" }
+cplp-hud = { path = "../../crates/cplp-hud" }
+cplp-flux = { path = "../../crates/cplp-flux" }
+cplp-plug-looper = { path = "../../crates/cplp-plug-looper" }
+cplp-scene = { path = "../../crates/cplp-scene" }
 triple_buffer.workspace = true
 tokio.workspace = true
 anyhow.workspace = true

@@ -25,7 +25,7 @@ pub trait AudioModule: Send {
 }
 
 /// MIDI イベント（ノートオン/オフ + CC）
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum MidiEvent {
     NoteOn { note: u8, velocity: u8 },
     NoteOff { note: u8 },

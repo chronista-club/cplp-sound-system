@@ -69,26 +69,35 @@ impl AudioEngine {
         let (mut send_prod, send_cons) = send_rb.split();
 
         let mixer = AudioMixer::default();
+
+        // RT 安全性: コールバック内でのヒープ割り当てを避けるため事前確保
+        let callback_buf_len =
+            (self.config.buffer_size as usize) * (self.config.channels as usize);
+        let mut local_buf = vec![0.0f32; callback_buf_len];
+        let mut remote_buf = vec![0.0f32; callback_buf_len];
+
         let stream = device.build_output_stream(
             &stream_config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
+                let len = data.len();
+
                 // ローカルオーディオ生成
-                let mut local_buf = vec![0.0f32; data.len()];
-                audio_source(&mut local_buf);
+                local_buf[..len].fill(0.0);
+                audio_source(&mut local_buf[..len]);
 
                 // ローカルオーディオを送信バッファにコピー
-                let _ = send_prod.push_slice(&local_buf);
+                let _ = send_prod.push_slice(&local_buf[..len]);
 
                 // リモートオーディオ受信
-                let mut remote_buf = vec![0.0f32; data.len()];
-                let read = remote_cons.pop_slice(&mut remote_buf);
-                if read < remote_buf.len() {
+                remote_buf[..len].fill(0.0);
+                let read = remote_cons.pop_slice(&mut remote_buf[..len]);
+                if read < len {
                     // アンダーラン: 残りをゼロフィル（仕様通り）
-                    remote_buf[read..].fill(0.0);
+                    remote_buf[read..len].fill(0.0);
                 }
 
                 // ミキシング
-                mixer.mix(&local_buf, &remote_buf, data);
+                mixer.mix(&local_buf[..len], &remote_buf[..len], data);
             },
             move |err| {
                 error!("Audio stream error: {err}");
