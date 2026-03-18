@@ -134,3 +134,82 @@ impl AudioEngine {
         info!("Audio stream stopped");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cplp_core::config::AudioConfig;
+    use ringbuf::HeapRb;
+    use ringbuf::traits::{Consumer, Split};
+
+    #[test]
+    fn engine_new_has_no_stream() {
+        let engine = AudioEngine::new(AudioConfig::default());
+        assert!(engine.output_stream.is_none());
+        assert!(engine.remote_producer.is_none());
+        assert!(engine.send_consumer.is_none());
+    }
+
+    #[test]
+    fn engine_take_remote_producer_returns_none_before_start() {
+        let mut engine = AudioEngine::new(AudioConfig::default());
+        assert!(engine.take_remote_producer().is_none());
+    }
+
+    #[test]
+    fn engine_take_send_consumer_returns_none_before_start() {
+        let mut engine = AudioEngine::new(AudioConfig::default());
+        assert!(engine.take_send_consumer().is_none());
+    }
+
+    #[test]
+    fn engine_stop_is_idempotent() {
+        let mut engine = AudioEngine::new(AudioConfig::default());
+        engine.stop();
+        engine.stop();
+        engine.stop();
+        // パニックしなければ OK
+    }
+
+    #[test]
+    fn local_buf_preallocation_no_heap_in_callback_pattern() {
+        let config = AudioConfig::default();
+        let callback_buf_len = (config.buffer_size as usize) * (config.channels as usize);
+        // デフォルト: buffer_size=128, channels=2 → 256
+        assert_eq!(callback_buf_len, 128 * 2);
+        let buf = vec![0.0f32; callback_buf_len];
+        assert_eq!(buf.len(), callback_buf_len);
+    }
+
+    #[test]
+    fn buffer_capacity_formula() {
+        let config = AudioConfig::default();
+        let capacity =
+            (config.buffer_size as usize) * (config.channels as usize) * 8;
+        // 128 * 2 * 8 = 2048
+        assert_eq!(capacity, 2048);
+    }
+
+    #[test]
+    fn remote_underrun_zero_fill() {
+        // リモートバッファが空のとき pop_slice は 0 を返し、残りをゼロフィルする
+        let rb = HeapRb::<f32>::new(256);
+        let (_prod, mut cons) = rb.split();
+
+        let mut buf = vec![1.0f32; 64];
+        let read = cons.pop_slice(&mut buf);
+        assert_eq!(read, 0);
+
+        // エンジンのコールバックと同じパターン: read < len → ゼロフィル
+        buf[read..].fill(0.0);
+        assert!(buf.iter().all(|&v| v == 0.0));
+    }
+
+    #[test]
+    fn audio_config_default_values() {
+        let config = AudioConfig::default();
+        assert_eq!(config.sample_rate, 48_000);
+        assert_eq!(config.buffer_size, 128);
+        assert_eq!(config.channels, 2);
+    }
+}

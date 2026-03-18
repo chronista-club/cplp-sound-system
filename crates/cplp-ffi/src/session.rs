@@ -178,3 +178,248 @@ pub extern "C" fn cplp_session_get_state() -> CplpSessionState {
         lobby_url: url_ptr,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{cplp_init, RUNTIME};
+    use serial_test::serial;
+    use std::ffi::CString;
+
+    /// テストごとにグローバル状態をクリーンアップするヘルパー
+    fn cleanup_runtime() {
+        if let Ok(mut guard) = RUNTIME.write() {
+            *guard = None;
+        }
+    }
+
+    /// init + connect のヘルパー（接続済み状態を作る）
+    fn init_and_connect() {
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+        let url = CString::new("ws://localhost:8080").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::Ok));
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_without_init_returns_not_initialized() {
+        cleanup_runtime();
+
+        let url = CString::new("ws://localhost:8080").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::NotInitialized));
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_null_url_returns_invalid_argument() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let result = unsafe { cplp_session_connect(std::ptr::null()) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_empty_url_returns_invalid_argument() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let url = CString::new("").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_valid_url_returns_ok() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let url = CString::new("ws://localhost:8080").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        // 状態が Connected に変わっていること
+        let state = cplp_session_get_state();
+        assert_eq!(state.status, CplpSessionStatus::Connected);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_already_connected_returns_session_error() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let url = CString::new("ws://localhost:9999").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::SessionError));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_sets_lobby_url_in_state() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let url_str = "ws://example.com/lobby";
+        let url = CString::new(url_str).unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        let state = cplp_session_get_state();
+        assert!(!state.lobby_url.is_null());
+        let returned_url = unsafe { CStr::from_ptr(state.lobby_url) }.to_str().unwrap();
+        assert_eq!(returned_url, url_str);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_initializes_local_track_in_mixer() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let url = CString::new("ws://localhost:8080").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        // ミキサーに "local" トラックが追加されていることを確認
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = cplp_core::PeerId::new("local");
+        assert!(mixer.tracks.contains_key(&local_id));
+        assert_eq!(mixer.tracks[&local_id].label, "Me");
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_disconnect_without_init_returns_not_initialized() {
+        cleanup_runtime();
+
+        let result = cplp_session_disconnect();
+        assert!(matches!(result, CplpResult::NotInitialized));
+    }
+
+    #[test]
+    #[serial]
+    fn session_disconnect_when_already_disconnected_returns_session_error() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        // 初期状態は Disconnected なので、disconnect すると SessionError
+        let result = cplp_session_disconnect();
+        assert!(matches!(result, CplpResult::SessionError));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_disconnect_clears_lobby_url() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let result = cplp_session_disconnect();
+        assert!(matches!(result, CplpResult::Ok));
+
+        let state = cplp_session_get_state();
+        assert!(state.lobby_url.is_null());
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_disconnect_clears_mixer() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let result = cplp_session_disconnect();
+        assert!(matches!(result, CplpResult::Ok));
+
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        assert!(mixer.tracks.is_empty());
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_disconnect_connect_cycle() {
+        cleanup_runtime();
+
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        // 1st connect
+        let url = CString::new("ws://localhost:8080").unwrap();
+        assert!(matches!(
+            unsafe { cplp_session_connect(url.as_ptr()) },
+            CplpResult::Ok
+        ));
+
+        // disconnect
+        assert!(matches!(cplp_session_disconnect(), CplpResult::Ok));
+
+        // 2nd connect
+        let url2 = CString::new("ws://localhost:9090").unwrap();
+        assert!(matches!(
+            unsafe { cplp_session_connect(url2.as_ptr()) },
+            CplpResult::Ok
+        ));
+
+        let state = cplp_session_get_state();
+        assert_eq!(state.status, CplpSessionStatus::Connected);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_get_state_without_init_returns_disconnected() {
+        cleanup_runtime();
+
+        let state = cplp_session_get_state();
+        assert_eq!(state.status, CplpSessionStatus::Disconnected);
+        assert_eq!(state.peer_count, 0);
+        assert!(state.lobby_url.is_null());
+    }
+
+    #[test]
+    #[serial]
+    fn session_get_state_lobby_url_pointer_is_valid_cstring() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let url_str = "ws://test.example.com:1234/room";
+        let url = CString::new(url_str).unwrap();
+        assert!(matches!(
+            unsafe { cplp_session_connect(url.as_ptr()) },
+            CplpResult::Ok
+        ));
+
+        let state = cplp_session_get_state();
+        assert!(!state.lobby_url.is_null());
+
+        // ポインタが有効な C 文字列であること
+        let c_str = unsafe { CStr::from_ptr(state.lobby_url) };
+        let rust_str = c_str.to_str().unwrap();
+        assert_eq!(rust_str, url_str);
+
+        cleanup_runtime();
+    }
+}

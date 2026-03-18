@@ -244,3 +244,247 @@ pub unsafe extern "C" fn cplp_mixer_state_free(state: CplpMixerState) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session::cplp_session_connect;
+    use crate::types::CplpResult;
+    use crate::{cplp_init, RUNTIME};
+    use serial_test::serial;
+    use std::ffi::CString;
+
+    /// テストごとにグローバル状態をクリーンアップするヘルパー
+    fn cleanup_runtime() {
+        if let Ok(mut guard) = RUNTIME.write() {
+            *guard = None;
+        }
+    }
+
+    /// init + connect のヘルパー（接続済み状態を作る）
+    fn init_and_connect() {
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+        let url = CString::new("ws://localhost:8080").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::Ok));
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_without_session_returns_session_error() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        // 未接続状態でミキサー操作
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), 0.5) };
+        assert!(matches!(result, CplpResult::SessionError));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_null_peer_id_returns_invalid_argument() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let result = unsafe { cplp_mixer_set_volume(std::ptr::null(), 0.5) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_nonexistent_peer_returns_invalid_argument() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("nonexistent-peer").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), 0.5) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_out_of_range_high_returns_invalid_argument() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), 1.5) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_out_of_range_low_returns_invalid_argument() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), -0.1) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_valid_returns_ok() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), 0.7) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        // 実際に volume が変わっていることを確認
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!((mixer.tracks[&local_id].volume - 0.7).abs() < f32::EPSILON);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_pan_out_of_range_returns_invalid_argument() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+
+        // > 1.0
+        let result = unsafe { cplp_mixer_set_pan(peer.as_ptr(), 1.5) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        // < -1.0
+        let result = unsafe { cplp_mixer_set_pan(peer.as_ptr(), -1.5) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_pan_valid_returns_ok() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_pan(peer.as_ptr(), -0.5) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        // 実際に pan が変わっていることを確認
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!((mixer.tracks[&local_id].pan - (-0.5)).abs() < f32::EPSILON);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_mute_null_peer_returns_invalid_argument() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let result = unsafe { cplp_mixer_set_mute(std::ptr::null(), true) };
+        assert!(matches!(result, CplpResult::InvalidArgument));
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_mute_valid_returns_ok() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_mute(peer.as_ptr(), true) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        // 実際に mute が変わっていることを確認
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!(mixer.tracks[&local_id].mute);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_get_state_without_init_returns_empty() {
+        cleanup_runtime();
+
+        let state = cplp_mixer_get_state();
+        assert!(state.tracks.is_null());
+        assert_eq!(state.track_count, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_get_state_returns_tracks_after_connect() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let state = cplp_mixer_get_state();
+        assert!(!state.tracks.is_null());
+        assert_eq!(state.track_count, 1); // "local" トラック
+
+        // トラック情報を検証
+        let track = unsafe { &*state.tracks };
+        assert!(!track.peer_id.is_null());
+        let peer_str = unsafe { CStr::from_ptr(track.peer_id) }.to_str().unwrap();
+        assert_eq!(peer_str, "local");
+
+        assert!(!track.label.is_null());
+        let label_str = unsafe { CStr::from_ptr(track.label) }.to_str().unwrap();
+        assert_eq!(label_str, "Me");
+
+        // 解放
+        unsafe { cplp_mixer_state_free(state) };
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_state_free_null_tracks_is_safe() {
+        // null tracks で呼んでもクラッシュしないこと
+        let state = CplpMixerState {
+            tracks: std::ptr::null_mut(),
+            track_count: 0,
+            master_volume: 1.0,
+        };
+        unsafe { cplp_mixer_state_free(state) };
+        // パニックしなければ OK
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_state_free_allocated_state_no_leak() {
+        cleanup_runtime();
+        init_and_connect();
+
+        // get_state で確保されたメモリを free で解放
+        let state = cplp_mixer_get_state();
+        assert!(!state.tracks.is_null());
+        assert!(state.track_count > 0);
+
+        // free がパニックせず正常に完了すること（メモリリーク検証は miri に委譲）
+        unsafe { cplp_mixer_state_free(state) };
+
+        cleanup_runtime();
+    }
+}

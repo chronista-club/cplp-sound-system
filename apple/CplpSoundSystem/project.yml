@@ -34,15 +34,17 @@ targets:
         GENERATE_INFOPLIST_FILE: false
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "Apple Development"
-        DEVELOPMENT_TEAM: "${CPLP_DEVELOPMENT_TEAM}"
+        DEVELOPMENT_TEAM: 3EQKG4B352
         ENABLE_APP_SANDBOX: false
         SWIFT_EMIT_LOC_STRINGS: true
         # cplp-ffi リンク設定
         LIBRARY_SEARCH_PATHS:
           - "$(PROJECT_DIR)/../../target/release"
           - "$(PROJECT_DIR)/../../target/debug"
-        OTHER_LINKER_FLAGS:
+          - "$(inherited)"
+        OTHER_LDFLAGS:
           - "-lcplp_ffi"
+          - "-lc++"
         # CplpBridge モジュール（C ヘッダー）
         SWIFT_INCLUDE_PATHS:
           - "$(PROJECT_DIR)/CplpBridge"

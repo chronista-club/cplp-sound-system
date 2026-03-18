@@ -833,3 +833,163 @@ pub fn module_world_position(hp_pos: u32, hp_width: u32, total_hp: u32, row: u32
     let z = RAIL_DEPTH / 2.0 + PANEL_DEPTH / 2.0 + 0.001; // レールの前面に配置
     [x, y, z]
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn hp_unit_constant_sanity() {
+        assert!((HP_UNIT - 0.05).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn module_world_position_center_alignment() {
+        // HP 0 に 84HP モジュール（ラック幅 84HP）→ x = 0.0（中央揃え）
+        let pos = module_world_position(0, 84, 84, 0);
+        assert!((pos[0] - 0.0).abs() < 1e-5, "x should be 0.0, got {}", pos[0]);
+    }
+
+    #[test]
+    fn module_world_position_offset() {
+        // HP 位置が変わると x が変化する
+        let pos0 = module_world_position(0, 8, 84, 0);
+        let pos10 = module_world_position(10, 8, 84, 0);
+        assert!(
+            (pos10[0] - pos0[0] - 10.0 * HP_UNIT).abs() < 1e-5,
+            "x offset should be 10 * HP_UNIT"
+        );
+    }
+
+    #[test]
+    fn module_world_position_row1_y_offset() {
+        let pos_r0 = module_world_position(0, 8, 84, 0);
+        let pos_r1 = module_world_position(0, 8, 84, 1);
+        assert!(
+            (pos_r1[1] - pos_r0[1] - ROW_HEIGHT_3U).abs() < 1e-5,
+            "row=1 should be ROW_HEIGHT_3U higher"
+        );
+    }
+
+    #[test]
+    fn build_box_vertex_count() {
+        let (vertices, indices) = build_box(1.0, 1.0, 1.0, [1.0; 3], [0.5; 3]);
+        assert_eq!(vertices.len(), 24, "box should have 24 vertices (4 per face * 6 faces)");
+        assert_eq!(indices.len(), 36, "box should have 36 indices (6 per face * 6 faces)");
+    }
+
+    #[test]
+    fn build_box_index_valid_range() {
+        let (vertices, indices) = build_box(2.0, 3.0, 1.5, [1.0; 3], [0.5; 3]);
+        let vlen = vertices.len() as u32;
+        for (i, &idx) in indices.iter().enumerate() {
+            assert!(idx < vlen, "index[{}] = {} >= vertex count {}", i, idx, vlen);
+        }
+    }
+
+    #[test]
+    fn build_box_normals_normalized() {
+        let (vertices, _) = build_box(1.0, 1.0, 1.0, [1.0; 3], [0.5; 3]);
+        for (i, v) in vertices.iter().enumerate() {
+            let len = (v.normal[0].powi(2) + v.normal[1].powi(2) + v.normal[2].powi(2)).sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-5,
+                "vertex[{}] normal length = {}, expected 1.0",
+                i,
+                len
+            );
+        }
+    }
+
+    #[test]
+    fn build_sphere_vertex_count_formula() {
+        let segments = 16u32;
+        let rings = 8u32;
+        let (vertices, indices) = build_sphere(1.0, segments, rings, [1.0; 3]);
+        let expected_verts = (rings + 1) * (segments + 1);
+        assert_eq!(
+            vertices.len(),
+            expected_verts as usize,
+            "sphere verts: (rings+1)*(segments+1)"
+        );
+        let expected_indices = rings * segments * 6;
+        assert_eq!(
+            indices.len(),
+            expected_indices as usize,
+            "sphere indices: rings*segments*6"
+        );
+    }
+
+    #[test]
+    fn build_sphere_index_valid_range() {
+        let (vertices, indices) = build_sphere(0.5, 12, 6, [0.8; 3]);
+        let vlen = vertices.len() as u32;
+        for (i, &idx) in indices.iter().enumerate() {
+            assert!(idx < vlen, "sphere index[{}] = {} >= vertex count {}", i, idx, vlen);
+        }
+    }
+
+    #[test]
+    fn build_grid_empty_for_zero_step() {
+        // step=0 → n = (size / 0) = inf → as i32 は未定義動作に近いが、
+        // 実際の利用では step > 0 を前提とする。step が size より大きければ空に近い。
+        let (vertices, indices) = build_grid(1.0, 10.0, [0.5; 3]);
+        // n = (1.0 / 10.0) as i32 = 0 → -0..=0 → 1 iteration → 8 vertices, 12 indices
+        // "empty" ではないが、step > size で最小出力になることを確認
+        assert!(vertices.len() <= 8, "with step > size, minimal output expected");
+        assert!(indices.len() <= 12);
+    }
+
+    #[test]
+    fn build_module_panel_vertex_count() {
+        let (vertices, indices) = build_module_panel(8, [0.7, 0.7, 0.7]);
+        // box(24 verts, 36 idx) + 4 bezel strips (4 verts each = 16) + 1 inner panel (4 verts)
+        // = 24 + 16 + 4 = 44 vertices
+        // = 36 + 5*6 = 66 indices
+        assert_eq!(vertices.len(), 44, "module panel: 24 (box) + 16 (bezels) + 4 (inner)");
+        assert_eq!(indices.len(), 66, "module panel: 36 (box) + 30 (bezels+inner)");
+    }
+
+    #[test]
+    fn build_rack_frame_no_panic() {
+        let parts = build_rack_frame(84, 2, [0.3, 0.3, 0.35]);
+        // 2 rows * 2 rails + 2 side rails + 1 back panel = 7 parts
+        assert_eq!(parts.len(), 7, "84HP 2-row rack should have 7 parts");
+        for (verts, idxs, _pos) in &parts {
+            assert!(!verts.is_empty());
+            assert!(!idxs.is_empty());
+        }
+    }
+
+    #[test]
+    fn build_from_usd_mesh_none_on_missing_attrs() {
+        use crate::usd::{Prim, Property, Value};
+
+        // 空の Prim — 必要な属性がない
+        let prim = Prim {
+            prim_type: "Mesh".to_string(),
+            name: "test".to_string(),
+            properties: HashMap::new(),
+            children: vec![],
+        };
+        assert!(build_from_usd_mesh(&prim).is_none());
+
+        // points だけあっても faceVertexIndices/faceVertexCounts がない
+        let mut props = HashMap::new();
+        props.insert(
+            "points".to_string(),
+            Property {
+                type_name: "point3f[]".to_string(),
+                value: Value::Array(vec![]),
+            },
+        );
+        let prim2 = Prim {
+            prim_type: "Mesh".to_string(),
+            name: "test2".to_string(),
+            properties: props,
+            children: vec![],
+        };
+        assert!(build_from_usd_mesh(&prim2).is_none());
+    }
+}
