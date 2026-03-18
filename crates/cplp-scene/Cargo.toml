@@ -5,10 +5,19 @@ edition.workspace = true
 rust-version.workspace = true
 description = "3D ギグシーン（wgpu + USD ベース）"
 
+# visionOS ビルド用: staticlib を追加
+# `cargo build --lib --target aarch64-apple-visionos` で .a を生成し、
+# Swift プロジェクトからリンクする。
+# NOTE: visionOS ビルドには nightly + `-Zbuild-std` が必要（Tier 3 ターゲット）
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 wgpu.workspace = true
 winit.workspace = true
 pollster.workspace = true
 anyhow.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 bytemuck.workspace = true
+kdl.workspace = true

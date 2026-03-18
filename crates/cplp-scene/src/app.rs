@@ -52,6 +52,11 @@ impl ApplicationHandler for SceneApp {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         let Some(gpu) = &mut self.gpu else { return };
 
+        // 入力イベントをレンダラーに渡す（カメラ操作・選択）
+        if let Some(r) = &mut self.renderer {
+            r.process_event(&event);
+        }
+
         match event {
             WindowEvent::CloseRequested => {
                 event_loop.exit();
@@ -71,6 +76,11 @@ impl ApplicationHandler for SceneApp {
                 gpu.window().request_redraw();
             }
             WindowEvent::RedrawRequested => {
+                // フレーム更新（カメラ・選択・エディタ処理）
+                if let Some(r) = &mut self.renderer {
+                    r.update(&gpu.device);
+                }
+
                 let Some(r) = &self.renderer else { return };
                 let Some(depth_view) = &self.depth_view else {
                     return;

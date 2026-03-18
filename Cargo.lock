@@ -1837,7 +1837,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "kdl",
  "pollster",
+ "thiserror 2.0.18",
  "tracing",
  "wgpu",
  "winit",

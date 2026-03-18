@@ -1,15 +1,13 @@
 use wgpu::util::DeviceExt;
 
 use crate::camera::Camera;
+use crate::scene_graph::MeshVertex;
 
 /// 頂点データ（position + color + normal）
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct Vertex {
-    pub position: [f32; 3],
-    pub color: [f32; 3],
-    pub normal: [f32; 3],
-}
+///
+/// `scene_graph::MeshVertex` の型エイリアス。
+/// プラットフォーム非依存のメッシュ生成関数と wgpu パイプラインの両方で使用する。
+pub type Vertex = MeshVertex;
 
 impl Vertex {
     const LAYOUT: wgpu::VertexBufferLayout<'static> = wgpu::VertexBufferLayout {
@@ -363,6 +361,18 @@ impl MeshPipeline {
             data[..64].copy_from_slice(bytemuck::cast_slice(&transform));
             data[64..128].copy_from_slice(bytemuck::cast_slice(&normal_matrix));
             queue.write_buffer(&obj.model_buffer, 0, &data);
+        }
+    }
+
+    /// オブジェクト数を指定した位置で切り詰める（再構築用）
+    pub fn truncate(&mut self, count: usize) {
+        self.objects.truncate(count);
+    }
+
+    /// オブジェクトの base_position を更新
+    pub fn set_object_position(&mut self, index: usize, position: [f32; 3]) {
+        if let Some(obj) = self.objects.get_mut(index) {
+            obj.base_position = position;
         }
     }
 
