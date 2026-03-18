@@ -1,0 +1,5 @@
+module CplpBridge {
+    header "cplp_ffi.h"
+    link "cplp_ffi"
+    export *
+}
