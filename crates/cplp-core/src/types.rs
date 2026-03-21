@@ -517,4 +517,30 @@ mod tests {
         };
         assert_eq!(empty.byte_size(), 12);
     }
+
+    #[test]
+    fn apply_master_clamps_above_one() {
+        let mut mixer = MixerState::new();
+        mixer.apply_master(1.5, 100);
+        assert!((mixer.master_volume - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn apply_fader_nonexistent_peer_noop() {
+        let mut mixer = MixerState::new();
+        let ghost = PeerId::new("nonexistent");
+        // 存在しない peer への apply_fader がパニックしない
+        mixer.apply_fader(&ghost, 0.5, 100);
+        assert!(mixer.tracks.is_empty());
+    }
+
+    #[test]
+    fn mixer_state_default_equals_new() {
+        let default_state = MixerState::default();
+        let new_state = MixerState::new();
+        assert!(default_state.tracks.is_empty());
+        assert!(new_state.tracks.is_empty());
+        assert!((default_state.master_volume - new_state.master_volume).abs() < f32::EPSILON);
+        assert_eq!(default_state.last_master_ts, new_state.last_master_ts);
+    }
 }

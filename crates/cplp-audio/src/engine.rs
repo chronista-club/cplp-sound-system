@@ -212,4 +212,36 @@ mod tests {
         assert_eq!(config.buffer_size, 128);
         assert_eq!(config.channels, 2);
     }
+
+    #[test]
+    fn engine_take_remote_producer_consumed_after_start() {
+        // start() はデバイス依存なので、フィールドを直接 Some にセットしてテスト
+        let mut engine = AudioEngine::new(AudioConfig::default());
+
+        // リングバッファを手動で作って remote_producer にセット
+        let rb = HeapRb::<f32>::new(256);
+        let (prod, _cons) = rb.split();
+        engine.remote_producer = Some(prod);
+
+        // 1回目の take → Some
+        assert!(engine.take_remote_producer().is_some());
+        // 2回目の take → None（消費済み）
+        assert!(engine.take_remote_producer().is_none());
+    }
+
+    #[test]
+    fn engine_take_send_consumer_consumed_after_start() {
+        // start() はデバイス依存なので、フィールドを直接 Some にセットしてテスト
+        let mut engine = AudioEngine::new(AudioConfig::default());
+
+        // リングバッファを手動で作って send_consumer にセット
+        let rb = HeapRb::<f32>::new(256);
+        let (_prod, cons) = rb.split();
+        engine.send_consumer = Some(cons);
+
+        // 1回目の take → Some
+        assert!(engine.take_send_consumer().is_some());
+        // 2回目の take → None（消費済み）
+        assert!(engine.take_send_consumer().is_none());
+    }
 }

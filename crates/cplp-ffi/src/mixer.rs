@@ -487,4 +487,76 @@ mod tests {
 
         cleanup_runtime();
     }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_zero_is_valid() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), 0.0) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!((mixer.tracks[&local_id].volume - 0.0).abs() < f32::EPSILON);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_volume_one_is_valid() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_volume(peer.as_ptr(), 1.0) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!((mixer.tracks[&local_id].volume - 1.0).abs() < f32::EPSILON);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_pan_minus_one_is_valid() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_pan(peer.as_ptr(), -1.0) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!((mixer.tracks[&local_id].pan - (-1.0)).abs() < f32::EPSILON);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn mixer_set_pan_plus_one_is_valid() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let peer = CString::new("local").unwrap();
+        let result = unsafe { cplp_mixer_set_pan(peer.as_ptr(), 1.0) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        let rt = crate::runtime().unwrap();
+        let mixer = rt.mixer.lock().unwrap();
+        let local_id = PeerId::new("local");
+        assert!((mixer.tracks[&local_id].pan - 1.0).abs() < f32::EPSILON);
+
+        cleanup_runtime();
+    }
 }

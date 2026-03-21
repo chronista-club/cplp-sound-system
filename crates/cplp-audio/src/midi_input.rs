@@ -171,3 +171,68 @@ fn forward_midi_event(message: &[u8], tx: &mut MidiEventSender) {
         _ => {}
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::plugin_host::{note_channel, midi_event_channel};
+
+    #[test]
+    fn handle_note_on_calls_note_on() {
+        let (mut ctrl, mut recv) = note_channel(16);
+        // status=0x90 (NoteOn, channel 0), key=60, velocity=100
+        let message = [0x90, 60, 100];
+        handle_midi_message(&message, &mut ctrl);
+
+        // NoteController はリングバッファに push するので、受信側で確認
+        // NoteReceiver の consumer は private なので、もう一度 note_on して
+        // パニックしないことで検証（内部状態は plugin_host テストに委譲）
+        // ここでは handle_midi_message がパニックせず正常完了することを検証
+    }
+
+    #[test]
+    fn handle_note_on_velocity_zero_calls_note_off() {
+        let (mut ctrl, _recv) = note_channel(16);
+        // velocity=0 の NoteOn は NoteOff 扱い
+        let message = [0x90, 60, 0];
+        handle_midi_message(&message, &mut ctrl);
+        // パニックしなければ OK — NoteOff として処理される
+    }
+
+    #[test]
+    fn handle_note_off_calls_note_off() {
+        let (mut ctrl, _recv) = note_channel(16);
+        // status=0x80 (NoteOff)
+        let message = [0x80, 60, 64];
+        handle_midi_message(&message, &mut ctrl);
+        // パニックしなければ OK
+    }
+
+    #[test]
+    fn handle_cc_calls_control_change() {
+        let (mut ctrl, _recv) = note_channel(16);
+        // status=0xB0 (CC), cc=1 (mod wheel), value=127
+        let message = [0xB0, 1, 127];
+        handle_midi_message(&message, &mut ctrl);
+        // パニックしなければ OK
+    }
+
+    #[test]
+    fn handle_unknown_status_is_noop() {
+        let (mut ctrl, _recv) = note_channel(16);
+        // 未知のステータス 0xF0 (System Exclusive)
+        let message = [0xF0, 0x7E, 0x7F];
+        handle_midi_message(&message, &mut ctrl);
+        // パニックしなければ OK — 未知 status は無視される
+    }
+
+    #[test]
+    fn handle_short_message_is_noop() {
+        let (mut ctrl, _recv) = note_channel(16);
+        // 2 バイト以下のメッセージ
+        handle_midi_message(&[0x90, 60], &mut ctrl);
+        handle_midi_message(&[0x90], &mut ctrl);
+        handle_midi_message(&[], &mut ctrl);
+        // パニックしなければ OK — 短いメッセージは早期リターン
+    }
+}

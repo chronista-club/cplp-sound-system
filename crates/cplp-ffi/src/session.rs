@@ -422,4 +422,29 @@ mod tests {
 
         cleanup_runtime();
     }
+
+    #[test]
+    #[serial]
+    fn session_connect_peer_count_is_one() {
+        cleanup_runtime();
+        init_and_connect();
+
+        let state = cplp_session_get_state();
+        assert_eq!(state.peer_count, 1);
+
+        cleanup_runtime();
+    }
+
+    #[test]
+    #[serial]
+    fn session_connect_non_ascii_url_accepted() {
+        cleanup_runtime();
+        assert!(matches!(cplp_init(), CplpResult::Ok));
+
+        let url = CString::new("ws://日本語.example.com").unwrap();
+        let result = unsafe { cplp_session_connect(url.as_ptr()) };
+        assert!(matches!(result, CplpResult::Ok));
+
+        cleanup_runtime();
+    }
 }

@@ -992,4 +992,67 @@ mod tests {
         };
         assert!(build_from_usd_mesh(&prim2).is_none());
     }
+
+    #[test]
+    fn build_sphere_vertices_on_surface() {
+        let radius = 2.5;
+        let (vertices, _) = build_sphere(radius, 12, 8, [1.0; 3]);
+        let r_sq = radius * radius;
+        for (i, v) in vertices.iter().enumerate() {
+            let dist_sq = v.position[0].powi(2) + v.position[1].powi(2) + v.position[2].powi(2);
+            assert!(
+                (dist_sq - r_sq).abs() < 1e-4,
+                "vertex[{}] dist^2 = {}, expected {} (r={})",
+                i,
+                dist_sq,
+                r_sq,
+                radius
+            );
+        }
+    }
+
+    #[test]
+    fn build_module_panel_zero_hp_no_panic() {
+        // hp=0 でパニックしない
+        let (vertices, indices) = build_module_panel(0, [0.5, 0.5, 0.5]);
+        // 結果の内容は問わないが、パニックせず返ること
+        let _ = (vertices, indices);
+    }
+
+    #[test]
+    fn build_box_vertices_within_bounds() {
+        let w = 3.0f32;
+        let h = 2.0f32;
+        let d = 1.5f32;
+        let (vertices, _) = build_box(w, h, d, [1.0; 3], [0.5; 3]);
+        let hw = w / 2.0;
+        let hh = h / 2.0;
+        let hd = d / 2.0;
+        for (i, v) in vertices.iter().enumerate() {
+            assert!(
+                v.position[0] >= -hw - 1e-5 && v.position[0] <= hw + 1e-5,
+                "vertex[{}] x = {} outside [-{}, {}]",
+                i,
+                v.position[0],
+                hw,
+                hw
+            );
+            assert!(
+                v.position[1] >= -hh - 1e-5 && v.position[1] <= hh + 1e-5,
+                "vertex[{}] y = {} outside [-{}, {}]",
+                i,
+                v.position[1],
+                hh,
+                hh
+            );
+            assert!(
+                v.position[2] >= -hd - 1e-5 && v.position[2] <= hd + 1e-5,
+                "vertex[{}] z = {} outside [-{}, {}]",
+                i,
+                v.position[2],
+                hd,
+                hd
+            );
+        }
+    }
 }
