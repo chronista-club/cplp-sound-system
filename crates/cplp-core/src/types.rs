@@ -364,4 +364,157 @@ mod tests {
         mixer.apply_fader(&peer, 0.5, 200);
         assert_eq!(mixer.tracks[&peer].volume, 0.5);
     }
+
+    // ─── CPS-25 Phase 2a: LWW テスト ───────────────────────
+
+    #[test]
+    fn mixer_state_lww_fader_old_ts_ignored() {
+        let mut mixer = MixerState::new();
+        let peer = PeerId::new("alice");
+        mixer.add_track(peer.clone(), TrackState::new("Vocal"));
+        mixer.apply_fader(&peer, 0.7, 100);
+        // 古い ts → 無視
+        mixer.apply_fader(&peer, 0.2, 50);
+        assert_eq!(mixer.tracks[&peer].volume, 0.7);
+    }
+
+    #[test]
+    fn mixer_state_lww_fader_equal_ts_ignored() {
+        let mut mixer = MixerState::new();
+        let peer = PeerId::new("bob");
+        mixer.add_track(peer.clone(), TrackState::new("Guitar"));
+        mixer.apply_fader(&peer, 0.6, 100);
+        // 同値 ts → > のみ許可なので無視
+        mixer.apply_fader(&peer, 0.9, 100);
+        assert_eq!(mixer.tracks[&peer].volume, 0.6);
+    }
+
+    #[test]
+    fn mixer_state_lww_pan_concurrent_wins() {
+        let mut mixer = MixerState::new();
+        let peer = PeerId::new("carol");
+        mixer.add_track(peer.clone(), TrackState::new("Keys"));
+        mixer.apply_pan(&peer, -0.5, 10);
+        assert_eq!(mixer.tracks[&peer].pan, -0.5);
+        // 新しい ts が上書き
+        mixer.apply_pan(&peer, 0.8, 20);
+        assert_eq!(mixer.tracks[&peer].pan, 0.8);
+    }
+
+    #[test]
+    fn has_solo_with_multiple_solos() {
+        let mut mixer = MixerState::new();
+        let p1 = PeerId::new("p1");
+        let p2 = PeerId::new("p2");
+        mixer.add_track(p1.clone(), TrackState::new("A"));
+        mixer.add_track(p2.clone(), TrackState::new("B"));
+        mixer.apply_solo(&p1, true, 1);
+        mixer.apply_solo(&p2, true, 1);
+        assert!(mixer.has_solo());
+    }
+
+    #[test]
+    fn has_solo_false_when_all_off() {
+        let mut mixer = MixerState::new();
+        let p1 = PeerId::new("p1");
+        let p2 = PeerId::new("p2");
+        mixer.add_track(p1.clone(), TrackState::new("A"));
+        mixer.add_track(p2.clone(), TrackState::new("B"));
+        mixer.apply_solo(&p1, true, 1);
+        mixer.apply_solo(&p2, true, 1);
+        // 全解除
+        mixer.apply_solo(&p1, false, 2);
+        mixer.apply_solo(&p2, false, 2);
+        assert!(!mixer.has_solo());
+    }
+
+    #[test]
+    fn remove_nonexistent_track_noop() {
+        let mut mixer = MixerState::new();
+        let ghost = PeerId::new("ghost");
+        // パニックしないことを検証
+        mixer.remove_track(&ghost);
+        assert!(mixer.tracks.is_empty());
+    }
+
+    #[test]
+    fn peer_id_display_format() {
+        let id = PeerId::new("alice");
+        assert_eq!(format!("{}", id), "alice");
+    }
+
+    #[test]
+    fn peer_id_hash_equality() {
+        use std::collections::HashMap;
+        let a = PeerId::new("same-key");
+        let b = PeerId::new("same-key");
+        let mut map = HashMap::new();
+        map.insert(a, 42);
+        assert_eq!(map[&b], 42);
+    }
+
+    #[test]
+    fn audio_packet_roundtrip() {
+        let orig = AudioPacket {
+            seq: 42,
+            timestamp: 12345678,
+            pcm_data: vec![0.1, -0.5, 0.9, 0.0],
+        };
+        let bytes = orig.to_bytes();
+        let restored = AudioPacket::from_bytes(&bytes).unwrap();
+        assert_eq!(restored.seq, orig.seq);
+        assert_eq!(restored.timestamp, orig.timestamp);
+        assert_eq!(restored.pcm_data.len(), orig.pcm_data.len());
+        for (a, b) in restored.pcm_data.iter().zip(orig.pcm_data.iter()) {
+            assert!((a - b).abs() < f32::EPSILON);
+        }
+    }
+
+    #[test]
+    fn audio_packet_empty_pcm() {
+        let pkt = AudioPacket {
+            seq: 0,
+            timestamp: 0,
+            pcm_data: vec![],
+        };
+        let bytes = pkt.to_bytes();
+        assert_eq!(bytes.len(), 12);
+        let restored = AudioPacket::from_bytes(&bytes).unwrap();
+        assert!(restored.pcm_data.is_empty());
+    }
+
+    #[test]
+    fn audio_packet_too_short_error() {
+        // 11 バイト以下で Err
+        let short = vec![0u8; 11];
+        assert!(AudioPacket::from_bytes(&short).is_err());
+        // 0 バイトでも Err
+        assert!(AudioPacket::from_bytes(&[]).is_err());
+    }
+
+    #[test]
+    fn audio_packet_misaligned_size_error() {
+        // 12 + 3 = 15 バイト → (15 - 12) % 4 != 0
+        let bad = vec![0u8; 15];
+        assert!(AudioPacket::from_bytes(&bad).is_err());
+        // 12 + 1 = 13 バイト
+        let bad2 = vec![0u8; 13];
+        assert!(AudioPacket::from_bytes(&bad2).is_err());
+    }
+
+    #[test]
+    fn audio_packet_byte_size_formula() {
+        let pkt = AudioPacket {
+            seq: 1,
+            timestamp: 2,
+            pcm_data: vec![0.0; 10],
+        };
+        assert_eq!(pkt.byte_size(), 12 + 10 * 4);
+        let empty = AudioPacket {
+            seq: 0,
+            timestamp: 0,
+            pcm_data: vec![],
+        };
+        assert_eq!(empty.byte_size(), 12);
+    }
 }

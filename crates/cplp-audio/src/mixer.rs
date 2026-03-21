@@ -223,4 +223,227 @@ mod tests {
         assert!(output[0].abs() < 0.01_f32); // L should be ~0
         assert!((output[1] - 0.8_f32).abs() < 0.01); // R should be 0.8
     }
+
+    // ─── CPS-25 Phase 2a: 境界値テスト ──────────────────────
+
+    #[test]
+    fn mix_gain_zero() {
+        let mixer = AudioMixer {
+            local_gain: 0.0,
+            remote_gain: 1.0,
+        };
+        let local = [0.8, -0.5];
+        let remote = [0.3, 0.2];
+        let mut output = [0.0; 2];
+        mixer.mix(&local, &remote, &mut output);
+        // local 成分がゼロ → remote のみ
+        assert!((output[0] - 0.3).abs() < f32::EPSILON);
+        assert!((output[1] - 0.2).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn mix_empty_slices() {
+        let mixer = AudioMixer::default();
+        let local: &[f32] = &[];
+        let remote: &[f32] = &[];
+        let mut output = [0.0; 4];
+        // パニックしないことを検証
+        mixer.mix(local, remote, &mut output);
+        assert!(output.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn mix_output_shorter_than_input() {
+        let mixer = AudioMixer::default();
+        let local = [0.5, 0.6, 0.7, 0.8];
+        let remote = [0.1, 0.1, 0.1, 0.1];
+        let mut output = [0.0; 2]; // 入力より短い
+        mixer.mix(&local, &remote, &mut output);
+        // output の長さ分だけ処理される
+        assert_eq!(output.len(), 2);
+        assert!((output[0] - 0.6).abs() < f32::EPSILON);
+        assert!((output[1] - 0.7).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn mix_with_state_no_tracks() {
+        let state = MixerState::new();
+        let local_id = PeerId::new("local");
+        let local_buf = vec![0.5, 0.5];
+        let remote_bufs = HashMap::new();
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+        // トラックなし → 出力ゼロ
+        assert!(output.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn mix_with_state_master_volume_zero() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        state.apply_master(0.0, 1);
+
+        let local_buf = vec![0.8, 0.8];
+        let remote_bufs = HashMap::new();
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+        assert!(output.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn mix_with_state_master_volume_clamps() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        // master_volume > 1.0 は apply_master で clamp されるが、
+        // 直接設定して過大ゲインでもクランプされることを検証
+        state.master_volume = 5.0;
+
+        let local_buf = vec![0.9, 0.9];
+        let remote_bufs = HashMap::new();
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+        // clamp で [-1.0, 1.0] に収まる
+        for &s in &output {
+            assert!(s >= -1.0 && s <= 1.0);
+        }
+    }
+
+    #[test]
+    fn mix_pan_hard_left() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        let peer = PeerId::new("peer");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        state.add_track(peer.clone(), TrackState::new("Guitar"));
+        state.apply_pan(&peer, -1.0, 1); // hard left
+
+        let local_buf = vec![0.0, 0.0];
+        let mut remote_bufs = HashMap::new();
+        remote_bufs.insert(peer.clone(), vec![0.8, 0.8]);
+
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+
+        // hard left: θ = (-1+1)/2 * π/2 = 0, cos(0)=1, sin(0)=0
+        assert!((output[0] - 0.8).abs() < 0.01); // L が最大
+        assert!(output[1].abs() < 0.01);          // R がゼロ近似
+    }
+
+    #[test]
+    fn mix_pan_center() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        let peer = PeerId::new("peer");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        state.add_track(peer.clone(), TrackState::new("Guitar"));
+        state.apply_pan(&peer, 0.0, 1); // center
+
+        let local_buf = vec![0.0, 0.0];
+        let mut remote_bufs = HashMap::new();
+        remote_bufs.insert(peer.clone(), vec![1.0, 1.0]);
+
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+
+        // center: θ = π/4, cos(π/4) ≈ sin(π/4) ≈ 0.707
+        let expected = std::f32::consts::FRAC_PI_4.cos(); // ≈ 0.707
+        assert!((output[0] - expected).abs() < 0.01);
+        assert!((output[1] - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn should_output_muted_track_ignored() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        let peer = PeerId::new("peer");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        state.add_track(peer.clone(), TrackState::new("Guitar"));
+        state.apply_mute(&peer, true, 1);
+
+        let local_buf = vec![0.0, 0.0];
+        let mut remote_bufs = HashMap::new();
+        remote_bufs.insert(peer.clone(), vec![1.0, 1.0]);
+
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+
+        // mute なので出力ゼロ
+        assert!(output.iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn should_output_solo_multiple_tracks() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        let pa = PeerId::new("pa");
+        let pb = PeerId::new("pb");
+        let pc = PeerId::new("pc");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        state.add_track(pa.clone(), TrackState::new("A"));
+        state.add_track(pb.clone(), TrackState::new("B"));
+        state.add_track(pc.clone(), TrackState::new("C"));
+        state.apply_solo(&pa, true, 1);
+        state.apply_solo(&pb, true, 1);
+        // pc は solo OFF
+
+        let local_buf = vec![0.0, 0.0];
+        let mut remote_bufs = HashMap::new();
+        remote_bufs.insert(pa.clone(), vec![0.5, 0.5]);
+        remote_bufs.insert(pb.clone(), vec![0.5, 0.5]);
+        remote_bufs.insert(pc.clone(), vec![0.5, 0.5]);
+
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+
+        // pa + pb が出力される（pc は solo 外で無視）
+        // 0.5*0.707 * 2 = 0.707
+        assert!(output[0] > 0.6);
+        assert!(output[1] > 0.6);
+    }
+
+    #[test]
+    fn add_track_mono_fallback() {
+        let mut state = MixerState::new();
+        let local_id = PeerId::new("local");
+        let peer = PeerId::new("mono-peer");
+        state.add_track(local_id.clone(), TrackState::new("Me"));
+        state.add_track(peer.clone(), TrackState::new("Mono"));
+
+        let local_buf = vec![0.0, 0.0];
+        let mut remote_bufs = HashMap::new();
+        // mono: 1ch のバッファ（奇数長 = 1サンプル）
+        remote_bufs.insert(peer.clone(), vec![0.6]);
+
+        let mut output = vec![0.0; 2];
+        mix_with_state(&local_id, &state, &local_buf, &remote_bufs, &mut output);
+
+        // mono fallback: frame[0] * volume が output[0] に加算
+        assert!(output[0] > 0.0);
+    }
+
+    #[test]
+    fn lww_fader_older_timestamp_rejected() {
+        let mut state = MixerState::new();
+        let peer = PeerId::new("peer");
+        state.add_track(peer.clone(), TrackState::new("X"));
+        state.apply_fader(&peer, 0.5, 100);
+        // 古い ts → 拒否
+        state.apply_fader(&peer, 0.9, 50);
+        assert_eq!(state.tracks[&peer].volume, 0.5);
+        assert_eq!(state.tracks[&peer].last_fader_ts, 100);
+    }
+
+    #[test]
+    fn lww_pan_same_timestamp_rejected() {
+        let mut state = MixerState::new();
+        let peer = PeerId::new("peer");
+        state.add_track(peer.clone(), TrackState::new("Y"));
+        state.apply_pan(&peer, 0.3, 100);
+        // 同値 ts → 拒否（> のみ許可）
+        state.apply_pan(&peer, -0.8, 100);
+        assert_eq!(state.tracks[&peer].pan, 0.3);
+        assert_eq!(state.tracks[&peer].last_pan_ts, 100);
+    }
 }

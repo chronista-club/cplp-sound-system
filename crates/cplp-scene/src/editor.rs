@@ -621,4 +621,266 @@ mod tests {
             assert!(aabb.max[i] > aabb.min[i]);
         }
     }
+
+    // ── ドラッグ操作テスト (Phase 2b) ──────────────────
+
+    /// カメラパラメータのデフォルト値（テスト用）
+    /// FOV 45°, アスペクト比 16:9, カメラ Z=5.0, ターゲット Z=0.0
+    const TEST_FOV: f32 = std::f32::consts::FRAC_PI_4; // 45°
+    const TEST_ASPECT: f32 = 1280.0 / 720.0;
+    const TEST_EYE_Z: f32 = 5.0;
+    const TEST_TARGET_Z: f32 = 0.0;
+
+    /// on_mouse_down → on_mouse_move で HP 単位スナップ移動を確認
+    #[test]
+    fn drag_move_hp_snap() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 8, 10, 0)).unwrap();
+        editor.select(0);
+
+        // ドラッグ開始
+        editor.on_mouse_down(100.0, 100.0);
+        assert!(editor.is_dragging());
+
+        // 1HP 分のピクセル移動量を計算
+        // viewport_world_width = 2 * 5.0 * tan(PI/8) * (1280/720)
+        let distance = TEST_EYE_Z - TEST_TARGET_Z;
+        let viewport_world_width =
+            2.0 * distance * (TEST_FOV / 2.0).tan() * TEST_ASPECT;
+        let pixels_per_world = 1280.0 / viewport_world_width;
+        let pixels_per_hp = HP_UNIT * pixels_per_world;
+
+        // 右に 3HP 分ドラッグ
+        let dx = pixels_per_hp * 3.0;
+        editor.on_mouse_move(
+            100.0 + dx,
+            100.0,
+            TEST_FOV,
+            TEST_ASPECT,
+            TEST_EYE_Z,
+            TEST_TARGET_Z,
+        );
+
+        assert_eq!(editor.modules()[0].hp_pos, 13); // 10 + 3
+    }
+
+    /// ドラッグ先に他モジュールがある場合、移動しない
+    #[test]
+    fn drag_prevents_collision() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 8, 0, 0)).unwrap();
+        editor.add_module(make_module("B", 8, 8, 0)).unwrap(); // A の隣
+        editor.select(0);
+
+        editor.on_mouse_down(100.0, 100.0);
+
+        // 1HP 分のピクセルを計算して右に大きくドラッグ（B と衝突する位置へ）
+        let distance = (TEST_EYE_Z - TEST_TARGET_Z).abs();
+        let viewport_world_width =
+            2.0 * distance * (TEST_FOV / 2.0).tan() * TEST_ASPECT;
+        let pixels_per_world = 1280.0 / viewport_world_width;
+        let pixels_per_hp = HP_UNIT * pixels_per_world;
+
+        // 右に 5HP（hp_pos=5 にしたい → B(8..16) と衝突）
+        let dx = pixels_per_hp * 5.0;
+        editor.on_mouse_move(
+            100.0 + dx,
+            100.0,
+            TEST_FOV,
+            TEST_ASPECT,
+            TEST_EYE_Z,
+            TEST_TARGET_Z,
+        );
+
+        // 衝突するので元の位置のまま
+        assert_eq!(editor.modules()[0].hp_pos, 0);
+    }
+
+    /// ラック外へドラッグしても範囲内にクランプされる
+    #[test]
+    fn drag_clamps_to_rack_bounds() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 8, 70, 0)).unwrap();
+        editor.select(0);
+
+        editor.on_mouse_down(500.0, 100.0);
+
+        // 右に大量ドラッグ（ラック外へ）
+        let distance = (TEST_EYE_Z - TEST_TARGET_Z).abs();
+        let viewport_world_width =
+            2.0 * distance * (TEST_FOV / 2.0).tan() * TEST_ASPECT;
+        let pixels_per_world = 1280.0 / viewport_world_width;
+        let pixels_per_hp = HP_UNIT * pixels_per_world;
+
+        let dx = pixels_per_hp * 100.0; // 100HP 分
+        editor.on_mouse_move(
+            500.0 + dx,
+            100.0,
+            TEST_FOV,
+            TEST_ASPECT,
+            TEST_EYE_Z,
+            TEST_TARGET_Z,
+        );
+
+        // 84 - 8 = 76 が最大 hp_pos
+        assert_eq!(editor.modules()[0].hp_pos, 76);
+    }
+
+    /// Y 方向ドラッグで行が変わる
+    #[test]
+    fn drag_move_changes_row() {
+        let mut editor = PlacementEditor::new(84, 3, 1280, 720);
+        editor.add_module(make_module("A", 8, 0, 0)).unwrap();
+        editor.select(0);
+
+        editor.on_mouse_down(100.0, 400.0);
+
+        // 行の高さ分ピクセル移動を計算（Y軸は画面座標が下がプラスで反転）
+        let distance = (TEST_EYE_Z - TEST_TARGET_Z).abs();
+        let viewport_world_height = 2.0 * distance * (TEST_FOV / 2.0).tan();
+        let pixels_per_world = 720.0 / viewport_world_height;
+        let pixels_per_row = ROW_HEIGHT_3U * pixels_per_world;
+
+        // 上にドラッグ（画面座標では負方向 → row が増える）
+        let dy = -pixels_per_row * 1.0;
+        editor.on_mouse_move(
+            100.0,
+            400.0 + dy,
+            TEST_FOV,
+            TEST_ASPECT,
+            TEST_EYE_Z,
+            TEST_TARGET_Z,
+        );
+
+        assert_eq!(editor.modules()[0].row, 1);
+    }
+
+    /// on_mouse_up() 後に is_dragging() が false
+    #[test]
+    fn on_mouse_up_clears_drag() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 8, 0, 0)).unwrap();
+        editor.select(0);
+
+        editor.on_mouse_down(100.0, 100.0);
+        assert!(editor.is_dragging());
+
+        editor.on_mouse_up();
+        assert!(!editor.is_dragging());
+    }
+
+    /// 未選択状態でドラッグしても何も起きない
+    #[test]
+    fn drag_without_selection_is_noop() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 8, 10, 0)).unwrap();
+        // select しない
+
+        editor.on_mouse_down(100.0, 100.0);
+        assert!(!editor.is_dragging());
+
+        editor.on_mouse_move(200.0, 100.0, TEST_FOV, TEST_ASPECT, TEST_EYE_Z, TEST_TARGET_Z);
+        assert_eq!(editor.modules()[0].hp_pos, 10); // 変化なし
+    }
+
+    /// eye_z == target_z のときゼロ除算にならずゼロを返す
+    #[test]
+    fn pixel_delta_to_hp_zero_distance_returns_zero() {
+        let editor = PlacementEditor::new(84, 2, 1280, 720);
+        // pixel_delta_to_hp は private なので、ドラッグ操作経由で確認
+        // eye_z == target_z → distance=0 → viewport_world_width=0 → pixels_per_hp≈0 → 0を返す
+        let mut editor = editor;
+        editor.add_module(make_module("A", 8, 10, 0)).unwrap();
+        editor.select(0);
+        editor.on_mouse_down(100.0, 100.0);
+
+        // eye_z == target_z
+        editor.on_mouse_move(300.0, 100.0, TEST_FOV, TEST_ASPECT, 0.0, 0.0);
+        // ゼロ除算でパニックしないこと＆位置が変わらないこと
+        assert_eq!(editor.modules()[0].hp_pos, 10);
+    }
+
+    /// resize(0, 0) でビューポートが変わらない
+    #[test]
+    fn resize_zero_values_ignored() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.resize(0, 0);
+        // viewport はアクセサがないので、ドラッグのピクセル計算が壊れないか間接的に確認
+        // resize(0,0) は無視されるので、元の 1280x720 のまま
+        editor.add_module(make_module("A", 8, 10, 0)).unwrap();
+        editor.select(0);
+        editor.on_mouse_down(100.0, 100.0);
+
+        let distance = (TEST_EYE_Z - TEST_TARGET_Z).abs();
+        let viewport_world_width =
+            2.0 * distance * (TEST_FOV / 2.0).tan() * TEST_ASPECT;
+        let pixels_per_world = 1280.0 / viewport_world_width;
+        let pixels_per_hp = HP_UNIT * pixels_per_world;
+
+        let dx = pixels_per_hp * 2.0;
+        editor.on_mouse_move(
+            100.0 + dx,
+            100.0,
+            TEST_FOV,
+            TEST_ASPECT,
+            TEST_EYE_Z,
+            TEST_TARGET_Z,
+        );
+
+        // 正常にスナップ移動する（viewport が 0 になっていれば壊れる）
+        assert_eq!(editor.modules()[0].hp_pos, 12);
+    }
+
+    /// module_positions() が各モジュールの world_position() と一致する
+    #[test]
+    fn module_positions_returns_correct_world_coords() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 8, 0, 0)).unwrap();
+        editor.add_module(make_module("B", 16, 20, 1)).unwrap();
+
+        let positions = editor.module_positions();
+        assert_eq!(positions.len(), 2);
+
+        for (i, m) in editor.modules().iter().enumerate() {
+            let expected = m.world_position(84);
+            for axis in 0..3 {
+                assert!(
+                    (positions[i][axis] - expected[axis]).abs() < 1e-6,
+                    "module {} axis {} mismatch: {} vs {}",
+                    i,
+                    axis,
+                    positions[i][axis],
+                    expected[axis]
+                );
+            }
+        }
+    }
+
+    /// build_ghost_meshes().len() == empty_slots().len()
+    #[test]
+    fn build_ghost_meshes_matches_empty_slots() {
+        let mut editor = PlacementEditor::new(84, 2, 1280, 720);
+        editor.add_module(make_module("A", 16, 10, 0)).unwrap();
+        editor.add_module(make_module("B", 8, 40, 1)).unwrap();
+
+        let ghosts = editor.build_ghost_meshes();
+        let slots = editor.empty_slots();
+        assert_eq!(
+            ghosts.len(),
+            slots.len(),
+            "ghost meshes ({}) should match empty slots ({})",
+            ghosts.len(),
+            slots.len()
+        );
+
+        // 各ゴーストメッシュが有効なデータを持つ
+        for (verts, indices, pos) in &ghosts {
+            assert!(!verts.is_empty(), "ghost mesh vertices should not be empty");
+            assert!(!indices.is_empty(), "ghost mesh indices should not be empty");
+            // 位置は有限値
+            for &v in pos {
+                assert!(v.is_finite(), "ghost position should be finite");
+            }
+        }
+    }
 }
