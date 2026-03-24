@@ -127,7 +127,7 @@ set -euo pipefail
 
 TEAM_ID="3EQKG4B352"
 SIGN_ID="Developer ID Application: Anycreative Inc. ($TEAM_ID)"
-KEYCHAIN_PROFILE="cplp-notarize"
+KEYCHAIN_PROFILE="${CPLP_NOTARIZE_PROFILE:-vp-notarize}"
 VERSION=$(grep 'MARKETING_VERSION' apple/CplpSoundSystem/project.yml | head -1 | sed 's/.*: *"//;s/".*//')
 ARCHIVE_PATH="/tmp/CplpSoundSystem.xcarchive"
 DMG_DIR="/tmp/cplp-dmg"
