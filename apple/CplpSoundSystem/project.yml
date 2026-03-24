@@ -45,6 +45,16 @@ targets:
         OTHER_LDFLAGS:
           - "-lcplp_ffi"
           - "-lc++"
+          - "-framework CoreAudio"
+          - "-framework AudioToolbox"
+          - "-framework CoreMIDI"
+          - "-framework CoreFoundation"
+          - "-framework Carbon"
+          - "-framework Metal"
+          - "-framework QuartzCore"
+          - "-framework IOKit"
+          - "-framework AppKit"
+          - "-lresolv"
         # CplpBridge モジュール（C ヘッダー）
         SWIFT_INCLUDE_PATHS:
           - "$(PROJECT_DIR)/CplpBridge"

@@ -1,3 +1,17 @@
+[tools]
+rust = "1.94.0"
+
+[env]
+CPLP_ROOT = "{{config_root}}"
+
+[tasks.build]
+description = "Build all Rust crates"
+run = "cargo build"
+
+[tasks.test]
+description = "Run all tests"
+run = "cargo test --workspace"
+
 [tasks.app]
 description = "HUD を起動（release build + debug ログ出力）"
 run = """
@@ -14,17 +28,180 @@ echo "PID: $!"
 echo "Log: /tmp/cplp-hud.log (JSON Lines)"
 """
 
-[tasks."mac:build"]
-description = "macOS アプリをビルド（cargo + xcodebuild）"
+[tasks.mac]
+description = "Build & run macOS native app (CPLP Sound System.app) via xcodebuild"
 run = """
-cargo build --release -p cplp-ffi --quiet
-cd apps/macos && xcodebuild -project CplpMac.xcodeproj -scheme CplpMac -configuration Debug build 2>&1 | tail -3
+set -euo pipefail
+ROOT="$(pwd)"
+
+echo "🔨 Building cplp-ffi (staticlib)..."
+cargo build --release -p cplp-ffi
+
+echo "🔨 Generating C header via cbindgen..."
+if command -v cbindgen &>/dev/null; then
+  cbindgen --config crates/cplp-ffi/cbindgen.toml --crate cplp-ffi \
+    --output apple/CplpSoundSystem/CplpBridge/cplp_ffi.h
+fi
+
+echo "🔨 Generating Xcode project..."
+cd apple/CplpSoundSystem
+xcodegen generate --quiet
+
+echo "🔨 Building CPLP Sound System (xcodebuild)..."
+xcodebuild build \
+  -project CplpSoundSystem.xcodeproj \
+  -scheme CplpSoundSystem \
+  -configuration Release \
+  -derivedDataPath "$ROOT/.build/DerivedData" \
+  -quiet
+
+echo "🔄 既存プロセスを停止..."
+pkill -f 'CPLP Sound System$' 2>/dev/null && sleep 1 || true
+
+APP_PATH="$ROOT/.build/DerivedData/Build/Products/Release/CPLP Sound System.app"
+
+echo "🚀 Launching $APP_PATH ..."
+exec open "$APP_PATH"
 """
 
-[tasks."mac:run"]
-description = "macOS アプリをビルドして起動"
+[tasks."mac:build"]
+description = "Build macOS native app without launching"
 run = """
-cargo build --release -p cplp-ffi --quiet
-cd apps/macos && xcodebuild -project CplpMac.xcodeproj -scheme CplpMac -configuration Debug build 2>&1 | tail -3
-open ~/Library/Developer/Xcode/DerivedData/CplpMac-*/Build/Products/Debug/CPLP\\ Sound\\ System.app
+set -euo pipefail
+ROOT="$(pwd)"
+
+cargo build --release -p cplp-ffi
+
+if command -v cbindgen &>/dev/null; then
+  cbindgen --config crates/cplp-ffi/cbindgen.toml --crate cplp-ffi \
+    --output apple/CplpSoundSystem/CplpBridge/cplp_ffi.h
+fi
+
+cd apple/CplpSoundSystem
+xcodegen generate --quiet
+
+xcodebuild build \
+  -project CplpSoundSystem.xcodeproj \
+  -scheme CplpSoundSystem \
+  -configuration Release \
+  -derivedDataPath "$ROOT/.build/DerivedData" \
+  -quiet
+
+echo "✅ Built: $ROOT/.build/DerivedData/Build/Products/Release/CPLP Sound System.app"
+"""
+
+[tasks."mac:debug"]
+description = "Build macOS native app in Debug mode and launch"
+run = """
+set -euo pipefail
+ROOT="$(pwd)"
+
+cargo build -p cplp-ffi
+
+if command -v cbindgen &>/dev/null; then
+  cbindgen --config crates/cplp-ffi/cbindgen.toml --crate cplp-ffi \
+    --output apple/CplpSoundSystem/CplpBridge/cplp_ffi.h
+fi
+
+cd apple/CplpSoundSystem
+xcodegen generate --quiet
+
+xcodebuild build \
+  -project CplpSoundSystem.xcodeproj \
+  -scheme CplpSoundSystem \
+  -configuration Debug \
+  -derivedDataPath "$ROOT/.build/DerivedData" \
+  -quiet
+
+pkill -f 'CPLP Sound System$' 2>/dev/null && sleep 1 || true
+
+APP_PATH="$ROOT/.build/DerivedData/Build/Products/Debug/CPLP Sound System.app"
+echo "🚀 Launching $APP_PATH ..."
+exec open "$APP_PATH"
+"""
+
+[tasks."mac:release"]
+description = "Build, sign, notarize & package CPLP Sound System.app as DMG"
+run = """
+set -euo pipefail
+
+TEAM_ID="3EQKG4B352"
+SIGN_ID="Developer ID Application: Anycreative Inc. ($TEAM_ID)"
+KEYCHAIN_PROFILE="cplp-notarize"
+VERSION=$(grep 'MARKETING_VERSION' apple/CplpSoundSystem/project.yml | head -1 | sed 's/.*: *"//;s/".*//')
+ARCHIVE_PATH="/tmp/CplpSoundSystem.xcarchive"
+DMG_DIR="/tmp/cplp-dmg"
+DMG_PATH="dist/CplpSoundSystem-${VERSION}.dmg"
+
+echo "📦 CPLP Sound System v${VERSION} リリースビルド"
+echo "==========================================="
+
+# 1. Rust ライブラリビルド
+echo ""
+echo "🔨 [1/7] cplp-ffi ビルド..."
+cargo build --release -p cplp-ffi
+
+# 2. cbindgen
+echo ""
+echo "🔨 [2/7] cbindgen ヘッダー生成..."
+cbindgen --config crates/cplp-ffi/cbindgen.toml --crate cplp-ffi \
+  --output apple/CplpSoundSystem/CplpBridge/cplp_ffi.h
+
+# 3. xcodegen
+echo ""
+echo "🔨 [3/7] Xcode プロジェクト生成..."
+cd apple/CplpSoundSystem
+xcodegen generate --quiet
+
+# 4. Xcode Archive
+echo ""
+echo "🔨 [4/7] Xcode Archive..."
+rm -rf "$ARCHIVE_PATH"
+xcodebuild archive \
+  -project CplpSoundSystem.xcodeproj \
+  -scheme CplpSoundSystem \
+  -archivePath "$ARCHIVE_PATH" \
+  -configuration Release \
+  CODE_SIGN_IDENTITY="$SIGN_ID" \
+  CODE_SIGN_STYLE=Manual \
+  DEVELOPMENT_TEAM="$TEAM_ID" \
+  ARCHS=arm64 \
+  ONLY_ACTIVE_ARCH=YES \
+  -quiet
+cd ../..
+
+# 5. 署名検証
+echo ""
+echo "🔏 [5/7] 署名検証..."
+codesign -vvv "$ARCHIVE_PATH/Products/Applications/CPLP Sound System.app"
+
+# 6. DMG 作成 + Notarize
+echo ""
+echo "📀 [6/7] DMG 作成 + Notarize..."
+rm -rf "$DMG_DIR"
+mkdir -p "$DMG_DIR" "dist"
+cp -R "$ARCHIVE_PATH/Products/Applications/CPLP Sound System.app" "$DMG_DIR/"
+ln -s /Applications "$DMG_DIR/Applications"
+rm -f "$DMG_PATH"
+hdiutil create -volname "CPLP Sound System" \
+  -srcfolder "$DMG_DIR" \
+  -ov -format UDZO \
+  "$DMG_PATH"
+codesign --force --sign "$SIGN_ID" "$DMG_PATH"
+xcrun notarytool submit "$DMG_PATH" --keychain-profile "$KEYCHAIN_PROFILE" --wait
+
+# 7. Staple
+echo ""
+echo "📎 [7/7] Staple..."
+xcrun stapler staple "$DMG_PATH"
+
+rm -rf "$DMG_DIR" "$ARCHIVE_PATH"
+
+echo ""
+echo "==========================================="
+echo "✅ リリース完了: $DMG_PATH"
+echo "   Version: $VERSION"
+echo "   Signed:  $SIGN_ID"
+echo "   Notarized + Stapled"
+ls -lh "$DMG_PATH"
 """

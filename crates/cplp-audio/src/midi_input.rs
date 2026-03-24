@@ -116,8 +116,42 @@ impl MidiInputManager {
     }
 }
 
-/// MIDI メッセージを解析して NoteController (CLAP シンセ用) に転送
-fn handle_midi_message(message: &[u8], note_ctrl: &mut NoteController) {
+/// MIDI メッセージのディスパッチ先トレイト
+///
+/// NoteController と MidiEventSender の共通インターフェース。
+/// ロジック重複を排除するために導入。
+trait MidiDispatch {
+    fn note_on(&mut self, key: u8, velocity: u8);
+    fn note_off(&mut self, key: u8);
+    fn control_change(&mut self, cc: u8, value: u8);
+}
+
+impl MidiDispatch for NoteController {
+    fn note_on(&mut self, key: u8, velocity: u8) {
+        NoteController::note_on(self, key, velocity);
+    }
+    fn note_off(&mut self, key: u8) {
+        NoteController::note_off(self, key);
+    }
+    fn control_change(&mut self, cc: u8, value: u8) {
+        NoteController::control_change(self, cc, value);
+    }
+}
+
+impl MidiDispatch for MidiEventSender {
+    fn note_on(&mut self, key: u8, velocity: u8) {
+        MidiEventSender::note_on(self, key, velocity);
+    }
+    fn note_off(&mut self, key: u8) {
+        MidiEventSender::note_off(self, key);
+    }
+    fn control_change(&mut self, cc: u8, value: u8) {
+        MidiEventSender::control_change(self, cc, value);
+    }
+}
+
+/// MIDI メッセージを解析してディスパッチ先に転送
+fn dispatch_midi(message: &[u8], target: &mut impl MidiDispatch) {
     if message.len() < 3 {
         return;
     }
@@ -129,57 +163,39 @@ fn handle_midi_message(message: &[u8], note_ctrl: &mut NoteController) {
     match status {
         0x90 => {
             if velocity > 0 {
-                note_ctrl.note_on(key, velocity);
+                target.note_on(key, velocity);
             } else {
-                note_ctrl.note_off(key);
+                target.note_off(key);
             }
         }
         0x80 => {
-            note_ctrl.note_off(key);
+            target.note_off(key);
         }
         0xB0 => {
-            note_ctrl.control_change(key, velocity);
+            target.control_change(key, velocity);
         }
         _ => {}
     }
 }
 
+/// MIDI メッセージを解析して NoteController (CLAP シンセ用) に転送
+fn handle_midi_message(message: &[u8], note_ctrl: &mut NoteController) {
+    dispatch_midi(message, note_ctrl);
+}
+
 /// MIDI メッセージを MidiEventSender (AudioModule 用) に転送
 fn forward_midi_event(message: &[u8], tx: &mut MidiEventSender) {
-    if message.len() < 3 {
-        return;
-    }
-
-    let status = message[0] & 0xF0;
-    let key = message[1];
-    let velocity = message[2];
-
-    match status {
-        0x90 => {
-            if velocity > 0 {
-                tx.note_on(key, velocity);
-            } else {
-                tx.note_off(key);
-            }
-        }
-        0x80 => {
-            tx.note_off(key);
-        }
-        0xB0 => {
-            tx.control_change(key, velocity);
-        }
-        _ => {}
-    }
+    dispatch_midi(message, tx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plugin_host::{note_channel, midi_event_channel};
+    use crate::plugin_host::{midi_event_channel, note_channel};
 
     #[test]
     fn handle_note_on_calls_note_on() {
-        let (mut ctrl, mut recv) = note_channel(16);
+        let (mut ctrl, _recv) = note_channel(16);
         // status=0x90 (NoteOn, channel 0), key=60, velocity=100
         let message = [0x90, 60, 100];
         handle_midi_message(&message, &mut ctrl);
@@ -234,5 +250,34 @@ mod tests {
         handle_midi_message(&[0x90], &mut ctrl);
         handle_midi_message(&[], &mut ctrl);
         // パニックしなければ OK — 短いメッセージは早期リターン
+    }
+
+    // forward_midi_event のテスト（MidiEventSender 経由）
+    #[test]
+    fn forward_note_on_via_midi_event_sender() {
+        let (mut tx, _rx) = midi_event_channel(16);
+        let message = [0x90, 60, 100];
+        forward_midi_event(&message, &mut tx);
+    }
+
+    #[test]
+    fn forward_note_off_via_midi_event_sender() {
+        let (mut tx, _rx) = midi_event_channel(16);
+        let message = [0x80, 60, 64];
+        forward_midi_event(&message, &mut tx);
+    }
+
+    #[test]
+    fn forward_cc_via_midi_event_sender() {
+        let (mut tx, _rx) = midi_event_channel(16);
+        let message = [0xB0, 1, 127];
+        forward_midi_event(&message, &mut tx);
+    }
+
+    #[test]
+    fn forward_short_message_is_noop() {
+        let (mut tx, _rx) = midi_event_channel(16);
+        forward_midi_event(&[0x90, 60], &mut tx);
+        forward_midi_event(&[], &mut tx);
     }
 }
