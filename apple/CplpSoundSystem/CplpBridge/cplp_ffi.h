@@ -222,6 +222,9 @@ enum CplpResult cplp_scene_detach(void);
 // リサイズ
 enum CplpResult cplp_scene_resize(uint32_t width, uint32_t height);
 
+// AudioGraph の変更を反映してシーンを再構築
+enum CplpResult cplp_scene_rebuild(void);
+
 // 1 フレーム描画（DisplayLink から呼ばれる）
 enum CplpResult cplp_scene_render(void);
 

@@ -163,6 +163,35 @@ pub extern "C" fn cplp_scene_resize(width: u32, height: u32) -> CplpResult {
     CplpResult::Ok
 }
 
+/// AudioGraph の変更を反映してシーンを再構築
+#[unsafe(no_mangle)]
+pub extern "C" fn cplp_scene_rebuild() -> CplpResult {
+    let Some(state) = scene_ref() else {
+        return CplpResult::NotInitialized;
+    };
+
+    let Ok(mut inner) = state.inner.lock() else {
+        return CplpResult::InternalError;
+    };
+
+    let width = inner.config.width;
+    let height = inner.config.height;
+    let format = inner.config.format;
+
+    // CplpRuntime の AudioGraph を取得してレンダラーを再作成
+    let graph = crate::runtime().and_then(|rt| rt.graph.lock().ok().map(|g| g.clone()));
+    inner.renderer = SceneRenderer::with_graph(
+        &state.device,
+        format,
+        width,
+        height,
+        graph.as_ref(),
+    );
+
+    tracing::info!("cplp_scene_rebuild: シーン再構築完了");
+    CplpResult::Ok
+}
+
 /// 1 フレーム描画（DisplayLink から呼ばれる）
 #[unsafe(no_mangle)]
 pub extern "C" fn cplp_scene_render() -> CplpResult {

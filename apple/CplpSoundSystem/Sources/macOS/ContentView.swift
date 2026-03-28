@@ -67,10 +67,70 @@ struct ContentView: View {
                 .padding(12)
 
                 Spacer()
+
+                // モジュール一覧 (左下)
+                if !client.plugins.isEmpty {
+                    HStack {
+                        ModuleListHUD()
+                            .environmentObject(client)
+                        Spacer()
+                    }
+                    .padding(12)
+                }
             }
         }
         .frame(minWidth: 700, minHeight: 500)
     }
+}
+
+// MARK: - ModuleListHUD
+
+struct ModuleListHUD: View {
+    @EnvironmentObject var client: CplpClient
+    @State private var addedModules: [(nodeId: UInt32, name: String, pluginId: String)] = []
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Modules")
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+
+            ForEach(Array(addedModules.enumerated()), id: \.offset) { _, module in
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                    Text(module.name)
+                        .font(.caption)
+                    Spacer()
+                    Button {
+                        // TODO: CLAP GUI を別ウィンドウで開く
+                        print("[GUI] Open GUI for \(module.name) (\(module.pluginId))")
+                    } label: {
+                        Image(systemName: "rectangle.on.rectangle")
+                            .font(.caption2)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open Plugin GUI")
+                }
+            }
+        }
+        .padding(8)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .frame(maxWidth: 200)
+        .onReceive(NotificationCenter.default.publisher(for: .moduleAdded)) { notification in
+            if let info = notification.userInfo,
+               let nodeId = info["nodeId"] as? UInt32,
+               let name = info["name"] as? String,
+               let pluginId = info["pluginId"] as? String {
+                addedModules.append((nodeId: nodeId, name: name, pluginId: pluginId))
+            }
+        }
+    }
+}
+
+extension Notification.Name {
+    static let moduleAdded = Notification.Name("moduleAdded")
 }
 
 // MARK: - PluginPickerView
@@ -109,6 +169,16 @@ struct PluginPickerView: View {
                                     plugin.name.withCString { namePtr in
                                         let nodeId = cplp_graph_add_plugin(idPtr, namePtr, true)
                                         print("[Plugin] Added \(plugin.name) as node \(nodeId)")
+                                        cplp_scene_rebuild()
+                                        NotificationCenter.default.post(
+                                            name: .moduleAdded,
+                                            object: nil,
+                                            userInfo: [
+                                                "nodeId": nodeId,
+                                                "name": plugin.name,
+                                                "pluginId": plugin.id,
+                                            ]
+                                        )
                                     }
                                 }
                             } label: {
