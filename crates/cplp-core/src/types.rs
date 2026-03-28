@@ -238,7 +238,10 @@ impl Default for MixerState {
     }
 }
 
-// ─── 信号フローグラフ型定義 ──────────────────────────────
+// ─── 信号フローグラフ型定義（HUD 表示用スナップショット）─────────
+// NOTE: ルーティングの SSOT は audio_graph::AudioGraph。
+// これらの型は HUD/可視化用のスナップショットとして使用する。
+// 将来的に AudioGraph::to_hud_state() から派生する形に移行予定。
 
 /// 信号フローグラフのノード種別
 #[derive(Debug, Clone)]

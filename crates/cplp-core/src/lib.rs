@@ -1,3 +1,4 @@
+pub mod audio_graph;
 pub mod config;
 pub mod module;
 pub mod realtime;
