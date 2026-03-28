@@ -211,7 +211,7 @@ impl P2pManager {
             )));
         }
 
-        let server = ProtocolServer::with_identity("cplp", "0.2.0", "club.chronista.cplp");
+        let server = ProtocolServer::with_identity("cplp", "0.2.0", "tech.anycreative.cplp");
 
         // チャネルハンドラー登録（Phase 2 で本格的にストリーム受け渡しを実装）
         server

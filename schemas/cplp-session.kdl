@@ -2,7 +2,7 @@
 // Unison Protocol KDL 形式
 
 protocol "cplp-session" version="1.0.0" {
-    namespace "club.chronista.cplp"
+    namespace "tech.anycreative.cplp"
     description "CLAP Plugin Live Performance - P2P Session"
 
     // オーディオチャネル: 生 PCM ストリーミング（最低レイテンシ）

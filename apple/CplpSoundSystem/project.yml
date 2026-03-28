@@ -1,6 +1,6 @@
 name: CplpSoundSystem
 options:
-  bundleIdPrefix: club.chronista.cplp
+  bundleIdPrefix: tech.anycreative.cplp
   deploymentTarget:
     macOS: "26.0"
   xcodeVersion: "26.0"
@@ -27,7 +27,7 @@ targets:
         buildPhase: none
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: club.chronista.cplp.soundsystem
+        PRODUCT_BUNDLE_IDENTIFIER: tech.anycreative.cplp.soundsystem
         PRODUCT_NAME: "CPLP Sound System"
         CURRENT_PROJECT_VERSION: "1"
         MARKETING_VERSION: "0.2.0"
