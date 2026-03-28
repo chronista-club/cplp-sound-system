@@ -117,7 +117,7 @@ enum CplpResult cplp_init(void);
 // アプリ終了時に呼ぶこと。Arc の参照カウントが 0 になった時点で実際に解放される。
 enum CplpResult cplp_destroy(void);
 
-// バージョン情報を取得
+// バージョン情報を取得（Cargo.toml から自動取得）
 struct CplpVersion cplp_version(void);
 
 // オーディオエンジンを開始（デフォルト設定でサイン波テスト出力）

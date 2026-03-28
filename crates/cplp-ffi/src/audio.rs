@@ -165,6 +165,13 @@ pub extern "C" fn cplp_audio_stop() -> CplpResult {
             AUDIO_STATE.store(AudioState::Stopped as u8, Ordering::Relaxed);
             METER_LEFT.store(0.0, Ordering::Relaxed);
             METER_RIGHT.store(0.0, Ordering::Relaxed);
+
+            // 次回 audio_start 用に NoteChannel を再作成
+            let (note_ctrl, note_recv) =
+                cplp_audio::plugin_host::note_channel(256);
+            *rt.note_ctrl.lock().unwrap() = note_ctrl;
+            *crate::midi_note_recv().lock().unwrap() = Some(note_recv);
+
             tracing::info!("cplp_audio_stop: 完了");
             CplpResult::Ok
         }

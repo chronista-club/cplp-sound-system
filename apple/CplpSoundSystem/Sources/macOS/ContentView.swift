@@ -31,7 +31,18 @@ struct ContentView: View {
                     Spacer()
 
                     // ツールバー (右上)
-                    HStack(spacing: 4) {
+                    HStack(spacing: 8) {
+                        ToolbarButton(
+                            icon: client.isAudioRunning ? "stop.fill" : "play.fill",
+                            label: client.isAudioRunning ? "Stop" : "Play"
+                        ) {
+                            if client.isAudioRunning {
+                                client.stopAudio()
+                            } else {
+                                client.startAudio()
+                            }
+                        }
+
                         ToolbarButton(icon: "pianokeys", label: "MIDI") {
                             openWindow(id: "midi-console")
                         }

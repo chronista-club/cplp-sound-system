@@ -13,6 +13,7 @@ description = "3D ギグシーン（wgpu + USD ベース）"
 crate-type = ["lib", "staticlib"]
 
 [dependencies]
+cplp-core = { path = "../cplp-core" }
 wgpu.workspace = true
 winit.workspace = true
 pollster.workspace = true

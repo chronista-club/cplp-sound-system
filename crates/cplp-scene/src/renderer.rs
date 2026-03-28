@@ -300,30 +300,24 @@ fn build_rack_scene(
         pipeline.add_static(device, &verts, &idxs, pos);
     }
 
-    // 初期モジュール配置をエディタに登録
-    let initial_modules = [
-        ("Looper",    16, 0,  0, [0.1, 0.55, 0.9]),
-        ("Mixer",     20, 16, 0, [0.2, 0.7, 0.3]),
-        ("FX",        12, 36, 0, [0.9, 0.5, 0.1]),
-        ("Sequencer", 24, 48, 0, [0.7, 0.3, 0.8]),
-        ("Monitor",   12, 72, 0, [0.8, 0.8, 0.2]),
-        ("OSC",       10, 0,  1, [0.9, 0.2, 0.3]),
-        ("Filter",    14, 10, 1, [0.3, 0.8, 0.8]),
-        ("Env",        8, 24, 1, [0.6, 0.4, 0.2]),
-        ("LFO",        8, 32, 1, [0.5, 0.5, 0.9]),
-    ];
+    // AudioGraph からモジュールを生成
+    let graph = cplp_core::audio_graph::AudioGraph::default_setup();
+    let mut hp_pos: u32 = 0;
+    let row: u32 = 0;
 
-    for (name, hp_width, hp_pos, row, color) in &initial_modules {
+    for node in graph.nodes() {
+        let (hp_width, color) = node_to_module_params(&node.node_type);
         let module = PlacedModule {
-            name: name.to_string(),
-            hp_width: *hp_width,
-            hp_pos: *hp_pos,
-            row: *row,
-            color: *color,
+            name: node.name.clone(),
+            hp_width,
+            hp_pos,
+            row,
+            color,
         };
         if let Err(e) = editor.add_module(module) {
-            tracing::warn!("初期モジュール '{}' の追加に失敗: {}", name, e);
+            tracing::warn!("AudioGraph モジュール '{}' の追加に失敗: {}", node.name, e);
         }
+        hp_pos += hp_width;
     }
 
     // エディタのモジュールをパイプラインに追加
@@ -345,6 +339,23 @@ fn build_rack_scene(
     editor.take_dirty();
 
     frame_count
+}
+
+/// AudioGraph の NodeType から HP 幅とパネル色を決定
+fn node_to_module_params(node_type: &cplp_core::audio_graph::NodeType) -> (u32, [f32; 3]) {
+    use cplp_core::audio_graph::{AudioModuleType, NodeType};
+    match node_type {
+        NodeType::MidiInput => (8, [0.2, 0.15, 0.4]),              // 紫系
+        NodeType::ClapInstrument { .. } => (16, [0.1, 0.55, 0.9]), // 青系
+        NodeType::ClapEffect { .. } => (12, [0.9, 0.5, 0.1]),     // オレンジ系
+        NodeType::AudioModule { module_type } => match module_type {
+            AudioModuleType::Synthesizer => (14, [0.9, 0.2, 0.3]), // 赤系
+            AudioModuleType::Looper => (16, [0.3, 0.8, 0.8]),     // シアン系
+            AudioModuleType::BeatMachine => (12, [0.7, 0.3, 0.8]),// 紫系
+        },
+        NodeType::Mixer => (20, [0.2, 0.7, 0.3]),                  // 緑系
+        NodeType::Output => (8, [0.8, 0.8, 0.2]),                  // 黄系
+    }
 }
 
 /// ゴーストパネルをパイプラインに追加。追加した数を返す。
