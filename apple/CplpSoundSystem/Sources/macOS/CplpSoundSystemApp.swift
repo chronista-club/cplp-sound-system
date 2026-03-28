@@ -22,11 +22,36 @@ struct CplpSoundSystemApp: App {
         return CplpSoundSystemApp._sharedClient
     }()
 
+    @State private var midiModel = MidiConsoleModel()
+    @State private var midiClient: MidiConsoleClient?
+    @State private var keystageManager: KeystageManager?
+
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(client)
+                .environment(midiModel)
+                .environment(keystageManager)
         }
         .defaultSize(width: 900, height: 650)
+
+        Window("MIDI 2.0 Console", id: "midi-console") {
+            MidiConsoleView()
+                .environment(midiModel)
+        }
+        .defaultSize(width: 800, height: 500)
+        .defaultLaunchBehavior(.suppressed)
+    }
+
+    init() {
+        let model = MidiConsoleModel()
+        let midi = MidiConsoleClient(model: model)
+        let keystage = KeystageManager(midiClient: midi)
+        _midiModel = State(initialValue: model)
+        _midiClient = State(initialValue: midi)
+        _keystageManager = State(initialValue: keystage)
+
+        // Keystage detection is triggered manually from MIDI overview
+        // Auto-detect will be enabled once SysEx receive handling is connected
     }
 }

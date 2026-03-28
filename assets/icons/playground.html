@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>CPLP Halo Icon Playground</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; color: #eee; font-family: -apple-system, sans-serif; display: flex; height: 100vh; }
+
+  #preview { flex: 1; display: flex; align-items: center; justify-content: center; }
+  #preview svg { width: min(80vh, 80vw); height: min(80vh, 80vw); }
+
+  #controls {
+    width: 340px; padding: 16px; overflow-y: scroll;
+    background: #1a1a2e; border-left: 1px solid #333;
+    max-height: 100vh;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  h2 { font-size: 13px; color: #ff8fa3; margin: 14px 0 6px; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  h2:first-child { margin-top: 0; }
+
+  label {
+    display: flex; justify-content: space-between; align-items: center;
+    font-size: 11px; margin: 3px 0; color: #aaa;
+  }
+  label span.val { color: #ff8fa3; min-width: 36px; text-align: right; font-size: 10px; }
+
+  input[type=range] { width: 130px; accent-color: #ff6b8a; }
+
+  .color-row { display: flex; gap: 6px; align-items: center; margin: 3px 0; }
+  .color-row input[type=color] { width: 30px; height: 20px; border: none; cursor: pointer; }
+  .color-row span { font-size: 10px; }
+
+  button {
+    width: 100%; padding: 7px; margin: 6px 0 3px;
+    background: #ff6b8a; color: #fff; border: none; border-radius: 4px;
+    cursor: pointer; font-size: 12px;
+  }
+  button:hover { background: #e85d75; }
+  button.secondary { background: #333; }
+  button.secondary:hover { background: #444; }
+
+  #export-info { font-size: 10px; color: #666; margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<div id="preview"></div>
+
+<div id="controls">
+  <h2>Halo Ring</h2>
+  <label>Outer R <span class="val" id="v-outerR">0.92</span></label>
+  <input type="range" id="outerR" min="0.60" max="0.98" value="0.92" step="0.01">
+  <label>Ring Width <span class="val" id="v-ringWidth">0.47</span></label>
+  <input type="range" id="ringWidth" min="0.05" max="0.50" value="0.47" step="0.01">
+  <label>Ring Opacity <span class="val" id="v-ringOp">0.17</span></label>
+  <input type="range" id="ringOp" min="0.0" max="0.30" value="0.17" step="0.01">
+
+  <h2>3 Lanes (i / you / listeners)</h2>
+  <label>Sweep deg <span class="val" id="v-sweep">195</span></label>
+  <input type="range" id="sweep" min="30" max="200" value="195" step="5">
+  <label>Lane Width <span class="val" id="v-laneWidth">0.42</span></label>
+  <input type="range" id="laneWidth" min="0.05" max="0.50" value="0.42" step="0.01">
+  <label>Taper <span class="val" id="v-taper">1.00</span></label>
+  <input type="range" id="taper" min="0.0" max="1.0" value="1.00" step="0.05">
+  <label>Wobble <span class="val" id="v-wobble">34</span></label>
+  <input type="range" id="wobble" min="0" max="50" value="34" step="1">
+  <label>Wobble Freq <span class="val" id="v-wobbleFreq">2</span></label>
+  <input type="range" id="wobbleFreq" min="1" max="15" value="2" step="1">
+  <label>Lane Opacity <span class="val" id="v-laneOp">0.40</span></label>
+  <input type="range" id="laneOp" min="0.10" max="0.90" value="0.40" step="0.05">
+
+  <h2>Pearl (One)</h2>
+  <label>Pearl Size <span class="val" id="v-pearlSize">0.45</span></label>
+  <input type="range" id="pearlSize" min="0.08" max="0.55" value="0.45" step="0.01">
+  <label>Embrace <span class="val" id="v-embrace">0.10</span></label>
+  <input type="range" id="embrace" min="0.10" max="0.70" value="0.10" step="0.01">
+  <label>Embrace Opacity <span class="val" id="v-embraceOp">0.17</span></label>
+  <input type="range" id="embraceOp" min="0.05" max="0.40" value="0.17" step="0.01">
+
+  <h2>Stars</h2>
+  <label>Count <span class="val" id="v-starCount">12</span></label>
+  <input type="range" id="starCount" min="0" max="40" value="12" step="1">
+  <label>Size <span class="val" id="v-starSize">4</span></label>
+  <input type="range" id="starSize" min="1" max="10" value="4" step="0.5">
+  <label>Spread <span class="val" id="v-starSpread">0.85</span></label>
+  <input type="range" id="starSpread" min="0.30" max="0.98" value="0.85" step="0.01">
+
+  <h2>Diamonds</h2>
+  <label>Count <span class="val" id="v-diaCount">20</span></label>
+  <input type="range" id="diaCount" min="0" max="30" value="20" step="1">
+  <label>Size <span class="val" id="v-diaSize">18</span></label>
+  <input type="range" id="diaSize" min="2" max="24" value="18" step="1">
+  <label>Spread <span class="val" id="v-diaSpread">0.89</span></label>
+  <input type="range" id="diaSpread" min="0.20" max="0.98" value="0.89" step="0.01">
+
+  <h2>Colors</h2>
+  <div class="color-row"><input type="color" id="color0" value="#ff8fa3"><span>i</span></div>
+  <div class="color-row"><input type="color" id="color1" value="#ff6b8a"><span>you</span></div>
+  <div class="color-row"><input type="color" id="color2" value="#e85d75"><span>listeners</span></div>
+  <div class="color-row"><input type="color" id="bgColor" value="#1a0a14"><span>Background</span></div>
+  <div class="color-row"><input type="color" id="pearlCenter" value="#fff0f3"><span>Pearl Center</span></div>
+  <div class="color-row"><input type="color" id="pearlEdge" value="#c9184a"><span>Pearl Edge</span></div>
+  <div class="color-row"><input type="color" id="starColor" value="#ffe4ec"><span>Stars</span></div>
+  <div class="color-row"><input type="color" id="diaColor" value="#ffccd5"><span>Diamonds</span></div>
+
+  <h2>Export</h2>
+  <button id="btn-export">Download SVG</button>
+  <button class="secondary" id="btn-copy">Copy Params JSON</button>
+  <div id="export-info"></div>
+</div>
+
+<script>
+var $ = function(id) { return document.getElementById(id); };
+var preview = $('preview');
+
+var SLIDERS = ['outerR','ringWidth','ringOp','sweep','laneWidth','taper','wobble','wobbleFreq','laneOp',
+               'pearlSize','embrace','embraceOp','starCount','starSize','starSpread','diaCount','diaSize','diaSpread'];
+var COLORS = ['color0','color1','color2','bgColor','pearlCenter','pearlEdge','starColor','diaColor'];
+
+// Deterministic pseudo-random (seeded)
+function seededRandom(seed) {
+  var x = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function getParams() {
+  return {
+    outerR: +$('outerR').value,
+    ringWidth: +$('ringWidth').value,
+    ringOp: +$('ringOp').value,
+    sweep: +$('sweep').value,
+    laneWidth: +$('laneWidth').value,
+    taper: +$('taper').value,
+    wobble: +$('wobble').value,
+    wobbleFreq: +$('wobbleFreq').value,
+    laneOp: +$('laneOp').value,
+    pearlSize: +$('pearlSize').value,
+    embrace: +$('embrace').value,
+    embraceOp: +$('embraceOp').value,
+    starCount: +$('starCount').value,
+    starSize: +$('starSize').value,
+    starSpread: +$('starSpread').value,
+    diaCount: +$('diaCount').value,
+    diaSize: +$('diaSize').value,
+    diaSpread: +$('diaSpread').value,
+    colors: [$('color0').value, $('color1').value, $('color2').value],
+    bgColor: $('bgColor').value,
+    pearlCenter: $('pearlCenter').value,
+    pearlEdge: $('pearlEdge').value,
+    starColor: $('starColor').value,
+    diaColor: $('diaColor').value,
+  };
+}
+
+function render() {
+  var p = getParams();
+  SLIDERS.forEach(function(id) {
+    var el = $('v-' + id);
+    if (el) el.textContent = $(id).value;
+  });
+
+  var S = 1024, cx = 512, cy = 512;
+  var margin = 30;
+  var maxR = cx - margin;
+  var nPoints = 180;
+  var ns = 'http://www.w3.org/2000/svg';
+
+  // Ring dimensions
+  var outerR = maxR * p.outerR;
+  var innerR = outerR * (1 - p.ringWidth);
+  var midR = (outerR + innerR) / 2;
+  var bandHalf = (outerR - innerR) / 2;
+
+  // Clear
+  while (preview.firstChild) preview.removeChild(preview.firstChild);
+
+  var svg = document.createElementNS(ns, 'svg');
+  svg.setAttribute('width', S);
+  svg.setAttribute('height', S);
+  svg.setAttribute('viewBox', '0 0 ' + S + ' ' + S);
+
+  // ── Defs ──
+  var defs = document.createElementNS(ns, 'defs');
+
+  // BG gradient
+  var bgGrad = document.createElementNS(ns, 'radialGradient');
+  bgGrad.id = 'bg-grad'; bgGrad.setAttribute('cx','50%'); bgGrad.setAttribute('cy','50%'); bgGrad.setAttribute('r','50%');
+  [{o:'0%',c:'#1a1a3e'},{o:'100%',c:p.bgColor}].forEach(function(s){
+    var st = document.createElementNS(ns,'stop'); st.setAttribute('offset',s.o); st.setAttribute('stop-color',s.c); bgGrad.appendChild(st);
+  });
+  defs.appendChild(bgGrad);
+
+  // Glow filters
+  ['glow','glow-strong','glow-soft'].forEach(function(id, i){
+    var f = document.createElementNS(ns,'filter'); f.id=id;
+    f.setAttribute('x','-50%'); f.setAttribute('y','-50%'); f.setAttribute('width','200%'); f.setAttribute('height','200%');
+    var dev = [8, 16, 4][i];
+    var b = document.createElementNS(ns,'feGaussianBlur'); b.setAttribute('stdDeviation', String(dev)); b.setAttribute('result','blur');
+    var c = document.createElementNS(ns,'feComposite'); c.setAttribute('in','SourceGraphic'); c.setAttribute('in2','blur'); c.setAttribute('operator','over');
+    f.appendChild(b); f.appendChild(c); defs.appendChild(f);
+  });
+
+  // Embrace gradient
+  var embraceGrad = document.createElementNS(ns, 'radialGradient');
+  embraceGrad.id = 'embrace-grad'; embraceGrad.setAttribute('cx','50%'); embraceGrad.setAttribute('cy','50%'); embraceGrad.setAttribute('r','50%');
+  [{o:'0%',c:p.pearlCenter,op:'1'},{o:'40%',c:'#ffccd5',op:'0.6'},{o:'100%',c:p.pearlEdge,op:'0'}].forEach(function(s){
+    var st = document.createElementNS(ns,'stop'); st.setAttribute('offset',s.o); st.setAttribute('stop-color',s.c); st.setAttribute('stop-opacity',s.op); embraceGrad.appendChild(st);
+  });
+  defs.appendChild(embraceGrad);
+
+  // Pearl gradient
+  var pearlGrad = document.createElementNS(ns, 'radialGradient');
+  pearlGrad.id = 'pearl-grad'; pearlGrad.setAttribute('cx','38%'); pearlGrad.setAttribute('cy','33%'); pearlGrad.setAttribute('r','65%');
+  [{o:'0%',c:p.pearlCenter},{o:'25%',c:'#ffccd5'},{o:'55%',c:'#ff4d6d'},{o:'100%',c:p.pearlEdge}].forEach(function(s){
+    var st = document.createElementNS(ns,'stop'); st.setAttribute('offset',s.o); st.setAttribute('stop-color',s.c); pearlGrad.appendChild(st);
+  });
+  defs.appendChild(pearlGrad);
+
+  svg.appendChild(defs);
+
+  // ── Background ──
+  var rect = document.createElementNS(ns, 'rect');
+  rect.setAttribute('width', S); rect.setAttribute('height', S); rect.setAttribute('rx', '220'); rect.setAttribute('fill', 'url(#bg-grad)');
+  svg.appendChild(rect);
+
+  // ── Stars (behind the ring) ──
+  var starGroup = document.createElementNS(ns, 'g');
+  for (var si = 0; si < p.starCount; si++) {
+    var sAngle = seededRandom(si * 3 + 1) * Math.PI * 2;
+    var sR = maxR * (0.15 + p.starSpread * seededRandom(si * 3 + 2));
+    var sx = cx + sR * Math.cos(sAngle);
+    var sy = cy + sR * Math.sin(sAngle);
+    var sSize = p.starSize * (0.5 + seededRandom(si * 3 + 3) * 0.8);
+    var sOp = 0.3 + seededRandom(si * 7) * 0.6;
+
+    // 4-pointed star shape
+    var starPath = '';
+    for (var sp = 0; sp < 8; sp++) {
+      var sa = sp * Math.PI / 4 - Math.PI / 8;
+      var sr = (sp % 2 === 0) ? sSize : sSize * 0.35;
+      var spx = sx + sr * Math.cos(sa);
+      var spy = sy + sr * Math.sin(sa);
+      starPath += (sp === 0 ? 'M ' : ' L ') + spx.toFixed(1) + ',' + spy.toFixed(1);
+    }
+    starPath += ' Z';
+
+    var starEl = document.createElementNS(ns, 'path');
+    starEl.setAttribute('d', starPath);
+    starEl.setAttribute('fill', p.starColor);
+    starEl.setAttribute('opacity', String(sOp.toFixed(2)));
+    starEl.setAttribute('filter', 'url(#glow-soft)');
+    starGroup.appendChild(starEl);
+  }
+  svg.appendChild(starGroup);
+
+  // ── Halo Ring base ──
+  var ringBase = document.createElementNS(ns, 'circle');
+  ringBase.setAttribute('cx', cx); ringBase.setAttribute('cy', cy); ringBase.setAttribute('r', midR.toFixed(0));
+  ringBase.setAttribute('fill', 'none'); ringBase.setAttribute('stroke', p.colors[0]);
+  ringBase.setAttribute('stroke-width', (bandHalf * 2).toFixed(0));
+  ringBase.setAttribute('opacity', String(p.ringOp));
+  svg.appendChild(ringBase);
+
+  // ── 3 Lanes: i / you / listeners ──
+  var armGroup = document.createElementNS(ns, 'g');
+  var sweepRad = p.sweep * Math.PI / 180;
+  var gapAngle = 2 * Math.PI / 3;
+  var laneNames = ['i', 'you', 'listeners'];
+
+  for (var a = 0; a < 3; a++) {
+    var startAngle = a * gapAngle - Math.PI / 2;
+    var color = p.colors[a % p.colors.length];
+
+    var outerEdge = [];
+    var innerEdge = [];
+
+    for (var i = 0; i < nPoints; i++) {
+      var t = i / (nPoints - 1);
+      var angle = startAngle + t * sweepRad;
+
+      var armW = bandHalf * p.laneWidth / 0.28 * (1 - t * p.taper);
+      var wb = p.wobble * Math.sin(p.wobbleFreq * t * Math.PI * 2);
+
+      var rOuter = midR + armW + wb;
+      var rInner = midR - armW + wb * 0.5;
+
+      outerEdge.push({
+        x: cx + rOuter * Math.cos(angle),
+        y: cy + rOuter * Math.sin(angle),
+      });
+      innerEdge.push({
+        x: cx + Math.max(0, rInner) * Math.cos(angle),
+        y: cy + Math.max(0, rInner) * Math.sin(angle),
+      });
+    }
+
+    var outerStr = outerEdge.map(function(pt){ return pt.x.toFixed(1)+','+pt.y.toFixed(1); });
+    var innerStr = innerEdge.reverse().map(function(pt){ return pt.x.toFixed(1)+','+pt.y.toFixed(1); });
+    var d = 'M ' + outerStr.join(' L ') + ' L ' + innerStr.join(' L ') + ' Z';
+
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('fill', color);
+    path.setAttribute('opacity', String(p.laneOp));
+    path.setAttribute('filter', 'url(#glow)');
+    armGroup.appendChild(path);
+  }
+  svg.appendChild(armGroup);
+
+  // ── Diamonds (scattered in/around the ring) ──
+  var diaGroup = document.createElementNS(ns, 'g');
+  for (var di = 0; di < p.diaCount; di++) {
+    var dAngle = seededRandom(di * 5 + 100) * Math.PI * 2;
+    var dR = maxR * (0.2 + p.diaSpread * seededRandom(di * 5 + 101));
+    var dx = cx + dR * Math.cos(dAngle);
+    var dy = cy + dR * Math.sin(dAngle);
+    var dSize = p.diaSize * (0.5 + seededRandom(di * 5 + 102) * 0.7);
+    var dOp = 0.25 + seededRandom(di * 5 + 103) * 0.5;
+    var dRotate = seededRandom(di * 5 + 104) * 45;
+
+    // Diamond = rotated square
+    var diaPath = '';
+    for (var dp = 0; dp < 4; dp++) {
+      var da = dp * Math.PI / 2 + dRotate * Math.PI / 180;
+      var dr = (dp % 2 === 0) ? dSize : dSize * 0.6;
+      var dpx = dx + dr * Math.cos(da);
+      var dpy = dy + dr * Math.sin(da);
+      diaPath += (dp === 0 ? 'M ' : ' L ') + dpx.toFixed(1) + ',' + dpy.toFixed(1);
+    }
+    diaPath += ' Z';
+
+    var diaEl = document.createElementNS(ns, 'path');
+    diaEl.setAttribute('d', diaPath);
+    diaEl.setAttribute('fill', p.diaColor);
+    diaEl.setAttribute('opacity', String(dOp.toFixed(2)));
+    diaEl.setAttribute('filter', 'url(#glow-soft)');
+    diaGroup.appendChild(diaEl);
+  }
+  svg.appendChild(diaGroup);
+
+  // ── Embrace glow (包容力) ──
+  var embraceR = maxR * p.embrace;
+  var embraceCircle = document.createElementNS(ns, 'circle');
+  embraceCircle.setAttribute('cx', cx); embraceCircle.setAttribute('cy', cy);
+  embraceCircle.setAttribute('r', embraceR.toFixed(0));
+  embraceCircle.setAttribute('fill', 'url(#embrace-grad)');
+  embraceCircle.setAttribute('opacity', String(p.embraceOp));
+  embraceCircle.setAttribute('filter', 'url(#glow-strong)');
+  svg.appendChild(embraceCircle);
+
+  // ── Pearl: "One" ──
+  var pr = maxR * p.pearlSize;
+  var pearl = document.createElementNS(ns, 'circle');
+  pearl.setAttribute('cx', cx); pearl.setAttribute('cy', cy); pearl.setAttribute('r', pr.toFixed(0));
+  pearl.setAttribute('fill', 'url(#pearl-grad)'); pearl.setAttribute('opacity', '0.95');
+  pearl.setAttribute('filter', 'url(#glow-strong)');
+  svg.appendChild(pearl);
+
+  var pearlH = document.createElementNS(ns, 'circle');
+  pearlH.setAttribute('cx', cx); pearlH.setAttribute('cy', cy); pearlH.setAttribute('r', (pr * 0.4).toFixed(0));
+  pearlH.setAttribute('fill', p.pearlCenter); pearlH.setAttribute('opacity', '0.3');
+  svg.appendChild(pearlH);
+
+  var dot = document.createElementNS(ns, 'circle');
+  dot.setAttribute('cx', cx); dot.setAttribute('cy', cy); dot.setAttribute('r', '5');
+  dot.setAttribute('fill', 'white'); dot.setAttribute('opacity', '0.9');
+  svg.appendChild(dot);
+
+  preview.appendChild(svg);
+}
+
+// Bind
+SLIDERS.forEach(function(id){ $(id).addEventListener('input', render); });
+COLORS.forEach(function(id){ $(id).addEventListener('input', render); });
+
+$('btn-export').addEventListener('click', function() {
+  var svgEl = preview.querySelector('svg');
+  var serializer = new XMLSerializer();
+  var svgStr = serializer.serializeToString(svgEl);
+  var blob = new Blob([svgStr], { type: 'image/svg+xml' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'cplp_halo.svg';
+  a.click();
+  $('export-info').textContent = 'Exported: ' + a.download;
+});
+
+$('btn-copy').addEventListener('click', function() {
+  var p = getParams();
+  navigator.clipboard.writeText(JSON.stringify(p, null, 2));
+  $('export-info').textContent = 'Params copied to clipboard!';
+});
+
+render();
+</script>
+</body>
+</html>

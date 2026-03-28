@@ -225,6 +225,11 @@ impl NoteController {
 }
 
 impl NoteReceiver {
+    /// 1イベントを取得（lock-free）
+    pub fn try_pop(&mut self) -> Option<MidiEvent> {
+        self.consumer.try_pop()
+    }
+
     /// 保留中の全イベントを EventBuffer に書き込む
     fn drain_to_event_buffer(&mut self, event_buf: &mut EventBuffer) {
         while let Some(evt) = self.consumer.try_pop() {

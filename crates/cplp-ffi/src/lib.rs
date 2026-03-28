@@ -5,6 +5,7 @@
 
 pub mod audio;
 mod error;
+pub mod midi;
 mod mixer;
 mod scene;
 mod session;
@@ -13,9 +14,19 @@ pub mod types;
 use std::sync::{Arc, Mutex, RwLock};
 
 use cplp_audio::engine::AudioEngine;
+use cplp_audio::plugin_host::{NoteController, NoteReceiver, note_channel};
 use cplp_core::config::AppConfig;
 use cplp_core::MixerState;
 use types::{CplpResult, CplpSessionStatus, CplpVersion};
+
+/// NoteReceiver を audio_start まで保持するグローバルストレージ
+/// cplp_init で作成し、cplp_audio_start で take して audio callback に渡す
+pub(crate) static MIDI_NOTE_RECV: std::sync::OnceLock<Mutex<Option<NoteReceiver>>> =
+    std::sync::OnceLock::new();
+
+fn midi_note_recv() -> &'static Mutex<Option<NoteReceiver>> {
+    MIDI_NOTE_RECV.get_or_init(|| Mutex::new(None))
+}
 
 /// グローバルランタイム — Arc + RwLock で安全に管理
 ///
@@ -32,6 +43,8 @@ pub(crate) struct CplpRuntime {
     pub session: Mutex<SessionState>,
     /// ミキサー状態（cplp-core の MixerState を保持）
     pub mixer: Mutex<MixerState>,
+    /// MIDI ノートコントローラ（Swift → Rust の MIDI 入力用）
+    pub note_ctrl: Mutex<NoteController>,
 }
 
 /// FFI 側で管理するセッション状態
@@ -81,6 +94,13 @@ pub extern "C" fn cplp_init() -> CplpResult {
     let config = AppConfig::default();
     let engine = AudioEngine::new(config.audio.clone());
 
+    let (note_ctrl, note_recv) = note_channel(256);
+    // NoteReceiver をグローバルに保持（audio_start で使用）
+    {
+        let mut guard = midi_note_recv().lock().unwrap();
+        *guard = Some(note_recv);
+    }
+
     let runtime = Arc::new(CplpRuntime {
         _tokio: rt,
         engine: Mutex::new(engine),
@@ -91,6 +111,7 @@ pub extern "C" fn cplp_init() -> CplpResult {
             peer_count: 0,
         }),
         mixer: Mutex::new(MixerState::new()),
+        note_ctrl: Mutex::new(note_ctrl),
     });
 
     // RwLock write で排他的にアクセス — TOCTOU 不可能

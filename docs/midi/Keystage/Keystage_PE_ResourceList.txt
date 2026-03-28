@@ -1,0 +1,156 @@
+Keystage Property Exchange Resource List
+v1.0 2023/8/31
+
+----------------------------------------------------------------------
+ 1. TRANSMITTED LIST
+----------------------------------------------------------------------
+
+[1]Resource List 
+[
+  {"resource": "DeviceInfo"},
+  {"resource": "ChannelList", "canSubscribe":true}
+]
+
+
+
+[2]Device Info
+{
+  "manufacturerId": [66, 0, 0],
+  "manufacturer": "KORG Inc.",
+  "familyId": [105, 1], 
+  "family": "POLY AT MIDI KEYBOARD",
+  "modelId": [1, 0],
+  "model": "Keystage",
+  "versionId": [0, 0, 1, 0],
+  "version": "1.0.0"
+}
+
++-----------+----------------------+
+| modelId   | model                |
+-----------------------------------+
+| 1,0       | Keystage - 49        |
+| 9,0       | Keystage - 61        |
++-----------+----------------------+
+
+
+[3]Channel List
+[
+  {
+    "title": "Keystage", 
+    "channel": 1
+  }
+]
+
+*Subscribe when Global MIDI Ch is changed.
+
+
+
+
+----------------------------------------------------------------------
+ 2. RECOGNIZED RECEIVE LIST
+----------------------------------------------------------------------
+Custom, Manufacturer/Device-Specific Resources
+
+[1]X-ParameterList (e.g.)
+[
+  {"name": "Perf Master Mod", "controlcc": 24, "default": 0},
+  {"name": "Perf Timing Mod", "controlcc": 25, "default": 0},
+  {"name": "Perf Sample Mod", "controlcc": 26, "default": 0},
+  {"name": "Perf Pitch Mod", "controlcc": 27, "default": 0},
+  {"name": "Perf Shape Mod", "controlcc": 28, "default": 0},
+  {"name": "Perf Gate Mod", "controlcc": 29, "default": 0},
+  {"name": "Perf Step Seq Mod", "controlcc": 30, "default": 0},
+  {"name": "Perf Speed Mod", "controlcc": 31, "default": 0},
+  ...
+]
+
+
+[1-1]parameterListSchema
+
+resId: parameterListSchema
+{
+  "type": "array",
+  "items": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Parameter Name",
+        "description": "Parameter Name",
+        "type": "string"
+      },
+      "controlcc": {
+        "title": "Control CC",
+        "description": "CC number to control this parameter",
+
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 127
+      },
+      "default": {
+        "title": "Default Value",
+        "description": "Default value for this parameter",
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 127
+      }
+    }
+  }
+}
+
+
+
+
+[2]X-ProgramEdit(e.g.)
+{
+  "currentValues": [
+    {"name": "Perf Master Mod", "value": 0, "displayValue": "0.0", "displayUnit": "%"},
+    {"name": "Perf Timing Mod", "value": 0, "displayValue": "0.0", "displayUnit": "%"},
+    {"name": "Perf Sample Mod", "value": 64, "displayValue": "50.0", "displayUnit": "%"},
+    {"name": "Perf Pitch Mod", "value": 38, "displayValue": "30.0", "displayUnit": "%"},
+    {"name": "Perf Shape Mod", "value": 64, "displayValue": "50.0", "displayUnit": "%"},
+    {"name": "Perf Gate Mod", "value": 64, "displayValue": "50.0", "displayUnit": "%"},
+    {"name": "Perf Step Seq Mod", "value": 0, "displayValue": "0.0", "displayUnit": "%"},
+    {"name": "Perf Speed Mod", "value": 64, "displayValue": "50.0", "displayUnit": "%"},
+    ...
+  ]
+}
+
+
+[2-1]programEditSchema
+
+resId: programEditSchema
+{
+  "type": "object",
+  "properties": {
+    "currentValues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "title": "Parameter Name",
+            "description": "Parameter Name",
+            "type": "string"
+          },
+          "value": {
+            "title": "Current Value",
+            "description": "Current value (Control Change value)",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 127
+          },
+          "displayValue": {
+            "title": "Display Value",
+            "description": "Current Value displayed on the UI (actual value)",
+            "type": "string"
+          },
+          "displayUnit": {
+            "title": "Display Unit",
+            "description": "Unit text for this parameter",
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

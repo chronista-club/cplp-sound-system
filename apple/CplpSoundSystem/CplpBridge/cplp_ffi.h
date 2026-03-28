@@ -151,6 +151,19 @@ void cplp_plugin_list_free(struct CplpPluginList list);
 // 呼び出しまでポインタは安全。
 const char *cplp_last_error(void);
 
+// MIDI NoteOn を送信
+//
+// Swift の CoreMIDI コールバックから呼ばれる。
+// MIDI 2.0 の高分解能ベロシティは呼び出し側で 7bit にスケールすること（暫定）。
+enum CplpResult cplp_midi_note_on(uint8_t key,
+                                  uint8_t velocity);
+
+// MIDI NoteOff を送信
+enum CplpResult cplp_midi_note_off(uint8_t key);
+
+// MIDI ControlChange を送信
+enum CplpResult cplp_midi_cc(uint8_t cc, uint8_t value);
+
 // トラックのボリュームを設定
 //
 // # Safety

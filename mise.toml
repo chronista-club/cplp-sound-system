@@ -205,3 +205,11 @@ echo "   Signed:  $SIGN_ID"
 echo "   Notarized + Stapled"
 ls -lh "$DMG_PATH"
 """
+
+[tasks."icon"]
+description = "Generate app icon from halo_params.json (SVG → PNG → icns → AppIcon.appiconset)"
+run = "python3 scripts/gen_icon.py"
+
+[tasks."icon:playground"]
+description = "Open icon parameter playground in browser"
+run = "open assets/icons/playground.html"

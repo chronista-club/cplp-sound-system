@@ -51,10 +51,12 @@ impl AudioEngine {
             device.name().unwrap_or_else(|_| "unknown".into())
         );
 
+        // CoreAudio はバッファサイズのヒントを無視することがある（特に macOS 26+）。
+        // Default を使い、OS に最適なサイズを選ばせる。
         let stream_config = StreamConfig {
             channels: self.config.channels,
             sample_rate: cpal::SampleRate(self.config.sample_rate),
-            buffer_size: cpal::BufferSize::Fixed(self.config.buffer_size),
+            buffer_size: cpal::BufferSize::Default,
         };
 
         let buffer_capacity =
@@ -70,16 +72,19 @@ impl AudioEngine {
 
         let mixer = AudioMixer::default();
 
-        // RT 安全性: コールバック内でのヒープ割り当てを避けるため事前確保
-        let callback_buf_len =
-            (self.config.buffer_size as usize) * (self.config.channels as usize);
-        let mut local_buf = vec![0.0f32; callback_buf_len];
-        let mut remote_buf = vec![0.0f32; callback_buf_len];
+        // CoreAudio が渡すバッファサイズは可変のため、十分大きく確保する。
+        // 最大 4096 frames * channels をカバー。
+        let max_callback_len = 4096 * (self.config.channels as usize);
+        let mut local_buf = vec![0.0f32; max_callback_len];
+        let mut remote_buf = vec![0.0f32; max_callback_len];
 
         let stream = device.build_output_stream(
             &stream_config,
             move |data: &mut [f32], _: &cpal::OutputCallbackInfo| {
                 let len = data.len();
+
+                // CoreAudio が想定外のサイズを渡した場合、バッファ範囲内に制限
+                let len = len.min(local_buf.len());
 
                 // ローカルオーディオ生成
                 local_buf[..len].fill(0.0);
@@ -96,8 +101,8 @@ impl AudioEngine {
                     remote_buf[read..len].fill(0.0);
                 }
 
-                // ミキシング
-                mixer.mix(&local_buf[..len], &remote_buf[..len], data);
+                // ミキシング — data の実際のサイズに合わせる
+                mixer.mix(&local_buf[..len], &remote_buf[..len], &mut data[..len]);
             },
             move |err| {
                 error!("Audio stream error: {err}");

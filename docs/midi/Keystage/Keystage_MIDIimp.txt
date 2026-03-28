@@ -1,0 +1,1115 @@
+
+
+        Keystage MIDI Implementation                   Version 1.00 (2023.8.31)
+
+
+--------------------------------------------------------------------------------
+ 1. Transmitted Data
+--------------------------------------------------------------------------------
+
+
+[1-1] Channel Messages
+----------------------
+                                                           [H]:Hex,  [D]:Decimal
++--------+----------+----------+-----------------------------------------------+
+| Status |  Second  |  Third   | Description         (Transmitted by )         |
+|  [Hex] | [H]  [D] | [H]  [D] |                                               |
++--------+----------+----------+-----------------------------------------------+
+|   8n   | kk  (kk) | XX  (XX) | Note Off            (Keyboard)                |
+|   8n   | kk  (kk) | 40  (64) | Note Off            (Button, Encoder)         |
+|   9n   | kk  (kk) | VV  (VV) | Note On             (Keyboard,Button,Encoder) |
+|   An   | kk  (kk) | vv  (vv) | Polyphonic Key Pressure (Keyboard)            |
+|   Dn   | vv  (vv) |          | Channel Pressure        (Keyboard)            |
+|   Bn   | cc  (cc) | vv  (vv) | Control Change                             *1 |
+|   Cn   | vv  (vv) |          | Program Change      (Pedal 1, Pedal 2, Button)|
+|   En   | vv  (vv) | vv  (vv) | Pitch Bend          (Pitch Wheel)             |
++--------+----------+----------+-----------------------------------------------+
+ n : MIDI Channel = 0~15
+ kk: Note# = 0~127
+ VV: Velocity = 1~127
+ XX: Velocity = 1~64
+ cc: Control Change# = 0~127
+ vv: Value = 0~127
+
+ *1: Pedal 1, Pedal 2, Mod Wheel, Knob, Button, Encoder
+
+
+[1-2] System Realtime Message
+-----------------------------
+
++-----------+----------------------+
+| Status[H] | Description          |
++-----------+----------------------+
+|    F8     | Timing Clock         |
++-----------+----------------------+
+
+
+
+
+[1-3] Universal System Exclusive Message (Non Realtime)
+-------------------------------------------------------
+
+ Device Inquiry Reply
++---------+-----------------------------------------------+
+| Byte[H] |                Description                    |
++---------+-----------------------------------------------+
+|   F0    | Exclusive Status                              |
+|   7E    | Non Realtime Message                          |
+|   0g    | Global MIDI Channel  ( Device ID )            |
+|   06    | General Information                           |
+|   02    | Identity Reply                                |
+|   42    | KORG ID              ( Manufacturers ID )     |
+|   69    | Keystage             ( Family ID   (LSB))     |
+|   01    |                      ( Family ID   (MSB))     |
+|   mm    |                      ( Member ID   (LSB))     |
+|   00    |                      ( Member ID   (MSB))     |
+|   xx    |                      ( Minor Ver.  (LSB))     |
+|   xx    |                      ( Minor Ver.  (MSB))     |
+|   xx    |                      ( Major Ver.  (LSB))     |
+|   xx    |                      ( Major Ver.  (MSB))     |
+|   F7    | End Of Exclusive                              |
++---------+-----------------------------------------------+
+ mm: 01 = Keystage-49, 09 = Keystage-61
+ This message is transmitted whenever an Inquiry Message Request is received.
+
+
+[1-4] System Exclusive Message Transmitted Command List
+-------------------------------------------------------
+
+ Structure of Keystage System Exclusive Messages
++------+-------+------------------------------------------------------------+
+| Byte | Value | Description                                                |
++------+-------+------------------------------------------------------------+
+|   1  |   F0  | Exclusive status                                           |
++------+-------+------------------------------------------------------------+
+|   2  |   42  | KORG manufacturers ID                                      |
++------+-------+------------------------------------------------------------+
+|   3  |   4g  | g= Global MIDI Channel                                     |
++------+-------+------------------------------------------------------------+
+|   4  |   00  | Product ID (Keystage = 0169H)                              |
++------+-------+                                                            |
+|   5  |   01  |                                                            |
++------+-------+                                                            |
+|   6  |   69  |                                                            |
++------+-------+------------------------------------------------------------+
+|   7  |   mm  | 01 = Keystage-49, 09 = Keystage-61                         |
++------+-------+------------------------------------------------------------+
+| 8~10 |   ss  | [Function ID] + [Data] length                              |
+|      |       | 7bit x 3 (Little Endian)                                   |
+|      |       | 0sss ssss  0sss ssss  0sss ssss                            |
++------+-------+------------------------------------------------------------+
+|  11  |   nn  | Function ID                                             *2 |
++------+-------+------------------------------------------------------------+
+|  12  |   dd  | Data                                                       |
++------+-------+------------------------------------------------------------+
+|   :  |   :   |                                                            |
++------+-------+------------------------------------------------------------+
+|  pp  |   F7  | Last Byte, End of exclusive                                |
++------+-------+------------------------------------------------------------+
+
+
+ *2: Function ID Code List
++-------------+----------------------------------------+-----+
+| Function ID | Description/Function                   |     |
+|    [Hex]    |                                        |     |
++-------------+----------------------------------------+-----+
+|     4F      | Scene Change                           | R,C |
+|     40      | Current Scene Data Dump                |  R  |
+|     51      | Global Data Dump                       |  R  |
+|     23      | Data Load Completed (ACK)              |  E  |
+|     24      | Data Load Error (NAK)                  |  E  |
+|     26      | Receive Data Format Error              |  E  |
+|     21      | Write Completed                        |  E  |
+|     22      | Write Error                            |  E  |
+|     42      | Mode Data                              |  R  |
+|     01      | Native Mode Enter/Exit                 |  R  |
+|     4A      | Knob Position Value Reply              |  R  |
+|     5F      | Controller Mode Change                 |  R  |
+|     41      | Parameter Change (Get Parameter Reply) | R,P |
++-------------+----------------------------------------+-----+
+Transmitted when
+  R  : Request Message is received.
+  C  : Scene is changed.
+  P  : Parameter is changed.
+  E  : Exclusive Message is received.
+
+
+[1-5] Search Device Message
+---------------------------
+
+ Search Device Reply
++---------+------------------------------------------------+
+| Byte[H] |                Description                     |
++---------+------------------------------------------------+
+|   F0    | Exclusive Status                               |
+|   42    | KORG ID              ( Manufacturers ID )      |
+|   50    | Search Device                                  |
+|   01    | Reply                                          |
+|   0g    | gggg: MIDI Global Channel  ( Device ID )       |
+|   dd    | Echo Back ID                                   |
+|   69    | Keystage ID          ( Family ID   (LSB))      |
+|   01    | Keystage ID          ( Family ID   (MSB))      |
+|   mm    |                      ( Member ID   (LSB))      |
+|   00    |                      ( Member ID   (MSB))      |
+|   xx    |                      ( Minor Ver.  (LSB))      |
+|   xx    |                      ( Minor Ver.  (MSB))      |
+|   xx    |                      ( Major Ver.  (LSB))      |
+|   xx    |                      ( Major Ver.  (MSB))      |
+|   F7    | End Of Exclusive                               |
++---------+------------------------------------------------+
+ g : MIDI Global Channel = 0 ~ F
+ dd: Echo Back ID = copy from SEARCH DEVICE REQUEST message.
+ mm: 01 = Keystage-49, 09 = Keystage-61
+
+ This message is transmitted whenever a Search Device Request is received.
+
+
+
+--------------------------------------------------------------------------------
+ 2. Recognized Receive Data
+--------------------------------------------------------------------------------
+
+[2-1] System Realtime Message
+-----------------------------
+
++-----------+----------------------+
+| Status[H] | Description          |
++-----------+----------------------+
+|    F8     | Timing Clock         |
++-----------+----------------------+
+
+
+
+[2-2] Universal System Exclusive Message (Non Realtime)
+-------------------------------------------------------
+
+ Inquiry Message Request
++---------+-----------------------------------------------+
+| Byte[H] |                Description                    |
++---------+-----------------------------------------------+
+|   F0    | Exclusive Status                              |
+|   7E    | Non Realtime Message                          |
+|   gg    | Global MIDI Channel                           |
+|   06    | General Information                           |
+|   01    | Identity Request                              |
+|   F7    | End Of Exclusive                              |
++---------+-----------------------------------------------+
+ gg = 00~0F :Received if Global Channel
+      7F    :Received on any Channel
+
+
+[2-3] System Exclusive Message Received Command List
+----------------------------------------------------
+
+ Structure of Keystage System Exclusive Messages
++------+-------+------------------------------------------------------------+
+| Byte | Value | Description                                                |
++------+-------+------------------------------------------------------------+
+|   1  |   F0  | Exclusive status                                           |
++------+-------+------------------------------------------------------------+
+|   2  |   42  | KORG manufacturers ID                                      |
++------+-------+------------------------------------------------------------+
+|   3  |   4g  | g= Global MIDI Channel                                     |
++------+-------+------------------------------------------------------------+
+|   4  |   00  | Product ID (Keystage = 0169H)                              |
++------+-------+                                                            |
+|   5  |   01  |                                                            |
++------+-------+                                                            |
+|   6  |   69  |                                                            |
++------+-------+------------------------------------------------------------+
+|   7  |   mm  | 01 = Keystage-49, 09 = Keystage-61                         |
++------+-------+------------------------------------------------------------+
+| 8~10 |   ss  | [Function ID] length + [Data] length                       |
+|      |       | 7bit x 3 (Little Endian)                                   |
+|      |       | 0sss ssss  0sss ssss  0sss ssss                            |
++------+-------+------------------------------------------------------------+
+|  11  |   nn  | Function ID                                             *3 |
++------+-------+------------------------------------------------------------+
+|  12  |   dd  | Data                                                       |
++------+-------+------------------------------------------------------------+
+|   :  |   :   |                                                            |
++------+-------+------------------------------------------------------------+
+|  pp  |   F7  | Last Byte, End of exclusive                                |
++------+-------+------------------------------------------------------------+
+
+
+ *3: Function ID Code List
++-------------+----------------------------------------+
+| Function ID | Description/Function                   |
+|    [Hex]    |                                        |
++-------------+----------------------------------------+
+|     10      | Current Scene Data Dump Request        |
+|     40      | Current Scene Data Dump                |
+|     0E      | Global Data Dump Request               |
+|     51      | Global Data Dump                       |
+|     11      | Scene Data Write Request               |
+|     12      | Mode Request                           |
+|     14      | Scene Change Request                   |
+|     00      | Native Mode Enter/Exit Request         |
+|     49      | Controller Mode Change Request         |
+|     28      | Native Mode Display Message            |
+|     2A      | Knob Position Value Request            |
+|     2B      | Get Parameter Request                  |
+|     41      | Parameter Change (Get Parameter Reply) |
++-------------+----------------------------------------+
+
+
+[2-4] Search Device Message
+---------------------------
+
+ Search Device Request
++---------+------------------------------------------------+
+| Byte[H] |                Description                     |
++---------+------------------------------------------------+
+|   F0    | Exclusive Status                               |
+|   42    | KORG ID                (Manufacturers ID)      |
+|   50    | Search Device                                  |
+|   00    | Request                                        |
+|   dd    | Echo Back ID                                   |
+|   F7    | END OF EXCLUSIVE                               |
++---------+------------------------------------------------+
+ Receive this message, and transmits Search Device Reply message
+ including copied Echo Back ID.
+
+
+
+--------------------------------------------------------------------------------
+ 3. MIDI Exclusive Format
+--------------------------------------------------------------------------------
+                                                         (R:Receive, T:Transmit)
+
+[3-1] Standard Messages
+-----------------------
+
+ (1) Scene Change Request                                                         R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0001 0100 (14) | Scene Change Request                                             |
+| 0000 ssss (ss) | Destination Scene Number (ss=00~15)                              |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage loads the scene data to the
+ current scene from the internal memory, and transmits a Func=4F(Scene Change) and
+ a Func=23(ACK) messages or a Func=24(NAK) message.
+
+ (2) Scene Change                                                                 -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0100 1111 (4F) | Scene Change                                                     |
+| 0000 ssss (ss) | Scene Number (ss=00~07)                                          |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When the Keystage completed to load the scene, it transmits this message.
+
+
+ (3) Current Scene Data Dump Request                                              R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0001 0000 (10) | Scene Data Dump Request                                          |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage transmits a Func=40(Current Scene Data Dump) or
+ a Func=24(NAK) message.
+
+ (4) Current Scene Data Dump                                                      R,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| xx,xx,00,      | [FunctionID] length + [Data] length = (1+ss) = xx (little endian)|
+| 0100 0000 (40) | Scene Data Dump                                                  |
+| 0ddd dddd (dd) | Data                                                  (NOTE 1,2) |
+|     :          |  :                                                               |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage saves them to the current scene data
+ and transmits a Func=23(ACK) or a Func=24(NAK) message.
+ When a Func=10(Scene Data Dump Request) message was received, the Keystage
+ transmits this message with the current scene data.
+
+ (5) Global Data Dump Request                                                     R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0000 1110 (0E) | Global Data Dump Request                                         |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage transmits a Func=51(Global Data Dump) or
+ a Func=24(NAK) message.
+
+ (6) Global Data Dump                                                             R,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| xx,xx,00,      | [FunctionID] length + [Data] length = (1+ss) = xx (little endian)|
+| 0101 0001 (51) | Global Data Dump                                                 |
+| 0ddd dddd (dd) | Data                                                  (NOTE 1,2) |
+|     :          |  :                                                               |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage saves them to the internal memory,
+ and transmits a Func=23(ACK) or a Func=24(NAK) message.
+ When a Func=0E(Global Data Dump Request) message was received, the Keystage
+ transmits this message with the global data on the internal memory.
+
+ (7) Scene Data Write Request                                                     R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0001 0001 (11) | Scene Data Write Request                                         |
+| 0000 ssss (ss) | Destination Scene Number (ss=00~07)                              |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage writes the current scene data to the
+ internal memory and transmits a Func=21(Write Complete) or a Func=22(Write Error)
+ message.
+
+ (8) Mode Request                                                                 R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0001 0010 (12) | Mode Request                                                     |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message was received, the Keystage replies a Func=42 (Mode Data) message.
+
+ (9) Mode Data                                                                    -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0100 0010 (42) | Mode Data                                                        |
+| 0nnn nnnn (nn) | Mode (nn = 0:Normal Mode / 1:Native Mode)                        |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ This message is transmitted when the Keystage received a Func=12 (Mode Request) message.
+
+
+ (10) Data Load Completed (ACK)                                                   -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0010 0011 (23) | Data Load Completed                                              |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When the operation was completed, the Keystage transmits this message.
+
+ (11) Data Load Error (NAK)                                                       -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0010 0100 (24) | Data Load Error                                                  |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When the operation was not completed, the Keystage transmits this message.
+
+ (12) Receive Data Format Error                                                   -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0010 0110 (26) | Receive Data Format Error                                        |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ This message is transmitted when the Keystage received message has any format error.
+
+ (13) Write Completed                                                             -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0010 0001 (21) | Write Completed                                                  |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When the writing operation was completed, the Keystage transmits this message.
+
+ (14) Write Error                                                                 -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0010 0010 (22) | Write Error                                                      |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When the writing operation was not completed, the Keystage transmits this message.
+
+ (15) KORG Native Mode Enter/Exit Request                                         R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0000 0000 (00) | Native Mode Enter/Exit Request                                   |
+| 0nnn nnnn (nn) | nn: 00=Exit Request / 01=Enter Request                           |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message is received, change the mode of Keystage and transmits 
+ a Func=01 (Native Mode Enter/Exit) message.
+
+ (16) KORG Native Mode Enter/Exit                                                 -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0000 0001 (01) | Native Mode Enter/Exit                                           |
+| 0rrr rrrr (rr) | rr: 00=Exit / 01=Enter                                           |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ This message is transmitted when the Keystage received a Func=00 
+ (Native Mode Enter/Exit Request) message and changes mode.
+
+(17) Controller Mode Change Request                                               R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0100 1001 (49) | Native Mode Controller Mode Change Request                       |
+| 0ddd dddd (dd) | Controller Mode                                               *4 |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message is received, Controller Mode of Keystage is changed and transmits 
+ a Func=5F (Native Mode Controller Mode Chang) message.
+
+(18) Controller Mode Change                                                       -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 02,00,00,      | [FunctionID] length + [Data] length = (1+1) = 2 (little endian)  |
+| 0101 1111 (5F) | Native Mode Controller Mode Change                               |
+| 0ddd dddd (dd) | Controller Mode                                               *4 |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ This message is transmitted when the Keystage received a Func=49 
+ (Native Mode Controller Mode Change Request) message and changes controller mode.
+
+(19) KORG Native Mode Display Message                                             R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| xx,00,00,      |                                                               *5 |
+| 0010 1000 (28) | Native Mode Display Message                                      |
+| 0nnn nnnn (nn) | Display Address (Main:0, Knob1~8:1~8)                            |
+| 0lll llll (ll) | Display Line (Upper:0, Lower:1)                                  |
+| vv, vv, ...    | Text (ASCII code (20H~7FH), Max Size:124)                        |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message is received,  the text is shown on the Keystage display 
+ and Keystage transmits a Func=23 (ACK) or a Func=24 (NAK) message.
+
+(20) KORG Native Mode Knob Position Value Request                                 R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 01,00,00,      | [FunctionID] length + [Data] length = (1+0) = 1 (little endian)  |
+| 0010 1010 (2A) | Native Mode Knob Position Value Request                          |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message is received, the Keystage transmits a Func=4A
+ (Native Mode Knob Position Value Reply) message.
+
+(21) KORG Native Mode Knob Position Value Reply                                   -,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 09,00,00,      | [FunctionID] length + [Data] length = (1+8) = 9 (little endian)  |
+| 0100 1010 (4A) | Native Mode Knob Position Value Reply.                           |
+| v1, v2,...v8   | Knob1~8 position (0~127)                                         |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ This message is transmitted when the Keystage received a Func=2A
+ (Native Mode Knob Position Value Request) message.
+
+(22) Get Parameter Request                                                        R,-
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 03,00,00,      | [FunctionID] length + [Data] length = (1+2) = 3 (little endian)  |
+| 0010 1011 (2B) | Get Parameter Request                                            |
+| 0iii iiii (ii) | Parameter ID                                          (TABLE 3)  |
+| 0sss ssss (ss) | Parameter Sub ID                                      (TABLE 3)  |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ When this message is received, the Keystage transmits a Parameter Change message.
+
+(23) Parameter Change (Get Parameter Reply)                                       R,T
++----------------+------------------------------------------------------------------+
+|     Byte       |                  Description                                     |
++----------------+------------------------------------------------------------------+
+| F0,42,4g,      | Exclusive Header  g;Global Channel  [Hex]                        |
+| 00,01,69,      | Family ID=000169H                                                |
+| mm             | Member ID (Keystage-49 = 01 / Keystage-61 = 09)                  |
+| 05,00,00,      | [FunctionID] length + [Data] length = (1+4) = 5 (little endian)  |
+| 0100 0001 (41) | Parameter Change                                                 |
+| 0iii iiii (ii) | Parameter ID                                          (TABLE 3)  |
+| 0sss ssss (ss) | Parameter Sub ID                                      (TABLE 3)  |
+| 0vvv vvvv (vv) | Value LSB                                                        |
+| 0VVV VVVV (VV) | Value MSB                                                        |
+| 1111 0111 (F7) | End of Exclusive (EOX)                                           |
++----------------+------------------------------------------------------------------+
+ This message is transmitted when the Keystage received
+ a Func=2B (Get Parameter Request) or when specified parameter is changed.
+ When this message is received, the specified parameter is changed.
+
+*4: Controller Mode List
+00: Assignable
+01: Logic
+02: GarageBand
+04: Ableton Live
+05: FL Studio
+06: Cubase
+07: Studio One
+09: Digital Performer
+10: Pro Tools
+11: Cakewalk
+
+
+
+*5: 
+[FunctionID] length + [Display Address] length + [Display Line] length 
+ + [Text] length = (1+1+1+ Text Length) = xx (little endian)
+
+
+ [NOTE 1] 
+   Scene Data Dump Format
+   500 bytes = 7*71+3 -> 8*71+(3+1) => 572 bytes (TABLE 1)
+
+   Global Data Dump Format
+   3667 bytes = 7*523+6 -> 8*523+(6+1) => 4191 bytes (TABLE 2)
+
+
+ [NOTE 2] 
+   The Dump Data Conversion
+
+   Data (1set = 8bit x 7Byte)
+   b7     ~      b0   b7     ~      b0   b7   ~~    b0   b7     ~      b0
+   +-+-+-+-+-+-+-+-+  +-+-+-+-+-+-+-+-+  +-+-+-~~-+-+-+  +-+-+-+-+-+-+-+-+
+   | | | | | | | | |  | | | | | | | | |  | | |    | | |  | | | | | | | | |
+   +-+-+-+-+-+-+-+-+  +-+-+-+-+-+-+-+-+  +-+-+-~~-+-+-+  +-+-+-+-+-+-+-+-+
+         7n+0               7n+1          7n+2 ~~ 7n+5         7n+6
+
+    MIDI Data (1set = 7bit x 8Byte)
+      b7b7b7b7b7b7b7     b6    ~     b0     b6 ~~    b0     b6    ~     b0
+   +-+-+-+-+-+-+-+-+  +-+-+-+-+-+-+-+-+  +-+-+-~~-+-+-+  +-+-+-+-+-+-+-+-+
+   |0| | | | | | | |  |0| | | | | | | |  |0| |    | | |  |0| | | | | | | |
+   +-+-+-+-+-+-+-+-+  +-+-+-+-+-+-+-+-+  +-+-+-~~-+-+-+  +-+-+-+-+-+-+-+-+
+   7n+6,5,4,3,2,1,0         7n+0          7n+1 ~~ 7n+5         7n+6
+
+
+
+ [TABLE 1] Scene Parameter
++---------+----------------------------+-------------------------------------------+
+|         |     PARAMETER              |                VALUE                      |
++---------+----------------------------+-------------------------------------------+
+| Common                                                                           |
++---------+----------------------------+-------------------------------------------+
+| 0~9     | Scene Name                 | null terminated                           |
+| 10~17   | User Page(Knob1~8)         | 0~127                                     |
+| 18~25   | Arp User Page(Knob1~8)     | 0~15   *List1 (Arp User Page List)        |
+| 26~28   | Modulation Mapping         | 0~127  (ModWheel,Velocity,AfterTouch)     |
++---------+----------------------------+-------------------------------------------+
+| Property Exchange                                                                |
++---------+----------------------------+-------------------------------------------+
+| 29      | Property Exchange Enable   | 0~1 = Enable / Disable                    |
+| 30      | Program Number Display     | 0~1 = Displayed / Not Displayed           |
++---------+----------------------------+-------------------------------------------+
+| Arpeggiator                                                                      |
++---------+----------------------------+-------------------------------------------+
+| 31      | Mode                       | 0~6   *List2 (Arp Mode List)              |
+| 32      | Octave                     | 0~3 = 1~4                                 |
+| 33      | Latch                      | 0/1 = Off/On                              |
+| 34      | Key Sync                   | 0/1 = Off/On                              |
+| 35      | Rate                       | 0~11   *List3 (Arp Rate List)             |
+| 36      | Swing                      | 0~100 = 0~100%                            |
+| 37      | Pattern                    | 0~20 = Repeat,1~20                        |
+| 38      | Ratchet Control            | 0~10   *List4 (Arp Ratchet Control List)  |
+| 39      | Ratchet Threshold          | 0~127                                     |
+| 40      | Ratchet Speed              | 0~16   *List5 (Arp Ratchet Speed List)    |
+| 41      | Ratchet Cycle              | 0~1 = Off/On                              |
+| 42      | Gate Time                  | 0~200 = -100% ~ +100%                     |
+| 43      | Gate Control               | 0~4   *List6 (Gate Control List)          |
+| 44      | Gate Depth                 | 0~200 = -100% ~ +100%                     |
+| 45      | Velocity                   | 0~127 = Enable, 1~127                     |
+| 46      | Chance                     | 1~100 = 1~100%                            |
++---------+----------------------------+-------------------------------------------+
+| Chord                                                                            |
++---------+----------------------------+-------------------------------------------+
+| 47      | Chord Set Num              | 0~63 = Preset01~32, User01~32             |
+| 48      | Strum Time                 | 0~100                                     |
+| 49      | Strum Direction            | 0~4 = Up/Down/Up&Down/Random/Velocity     |
++---------+----------------------------+-------------------------------------------+
+| Keyboard                                                                         |
++---------+----------------------------+-------------------------------------------+
+| 50      | MIDI Ch.                   | 0~15/16 = 1~16/Global                     |
+| 51      | Octave                     | 0~6 = -3 ~ +3                             |
+| 52      | Transpose                  | 0~24 = -12 ~ +12                          |
++---------+----------------------------+-------------------------------------------+
+| Wheel                                                                            |
++---------+----------------------------+-------------------------------------------+
+| 53      | MIDI Ch.                   | 0~15/16 = 1~16/Global                     |
+| 54      | Lower Value                | 0~127                                     |
+| 55      | Upper Value                | 0~127                                     |
++---------+----------------------------+-------------------------------------------+
+| Encoder                                                                          |
++---------+----------------------------+-------------------------------------------+
+| Play Position (REW)                                                              |
++---------+----------------------------+-------------------------------------------+
+| 56      | MIDI Ch.                   | 0~15/16 = 1~16/Global                     |
+| 57      | Assign Type                | 0~2 = NoAssign/CC/Note                    |
+| 58      | CC/Note Number             | 0~127                                     |
++---------+----------------------------+-------------------------------------------+
+| Play Position (FF)                                                               |
++---------+----------------------------+-------------------------------------------+
+| 59      | MIDI Ch.                   | 0~15/16 = 1~16/Global                     |
+| 60      | Assign Type                | 0~2 = NoAssign/CC/Note                    |
+| 61      | CC/Note Number             | 0~127                                     |
++---------+----------------------------+-------------------------------------------+
+| Knob                                                                             |
++---------+----------------------------+-------------------------------------------+
+| Knob1                                                                            |
++---------+----------------------------+-------------------------------------------+
+| 62      | MIDI Ch.                   | 0~15/16 = 1~16/Global                     |
+| 63      | Left Value                 | 0~127                                     |
+| 64      | Right Value                | 0~127                                     |
++---------+----------------------------+-------------------------------------------+
+| 65~445  | Knob2~128                  | (same as Knob 1)                          |
++---------+----------------------------+-------------------------------------------+
+| Button                                                                           |
++---------+----------------------------+-------------------------------------------+
+| Play Button                                                                      |
++---------+----------------------------+-------------------------------------------+
+| 446     | MIDI Ch.                   | 0~15/16 = 1~16/Global                     |
+| 447     | Assign Type                | 0~2 = NoAssign/CC/Note                    |
+| 448     | Behavior                   | 0~1 = Toggle/Momentary                    |
+| 449     | CC/Note Number             | 0~127                                     |
+| 450     | Off Value                  | 0~127                                     |
+| 451     | On Value                   | 0~127                                     |
++---------+----------------------------+-------------------------------------------+
+| 452~457 | Stop Button                | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 458~463 | Rec Button                 | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 464~469 | Loop Button                | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 470~475 | Tempo Button               | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 476~481 | Metro Button               | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 482~487 | Undo Button                | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 488~493 | Track Down Button          | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+| 494~499 | Track Up Button            | (same as Play Button)                     |
++---------+----------------------------+-------------------------------------------+
+
+Total 500 bytes
+
+*List1 (Arp User Page List)
+00: Arp Mode
+01: Octave
+02: Latch
+03: Key Sync
+04: Rate
+05: Swing
+06: Pattern
+07: Ratchet Control
+08: Ratchet Threshold
+09: Ratchet Speed
+10: Ratchet Cycle
+11: Gate Time
+12: Gate Control
+13: Gate Depth
+14: Velocity
+15: Chance
+
+*List2 (Arp Mode List)
+00: Up
+01: Down
+02: Up-Down
+03: Doun-Up
+04: Play
+05: Random
+06: Trigger
+
+*List3 (Arp Rate List)
+00: 1/1
+01: 1/2
+02: 1/3
+03: 1/4
+04: 1/6
+05: 1/8
+06: 1/12
+07: 1/16
+08: 1/24
+09: 1/32
+10: 1/48
+11: 1/64
+
+*List4 (Arp Ratchet Control List)
+00: Off
+01: Always
+02: Aftertouch
+03: ModWheel
+04: Pedal1
+05: Pedal2
+06: Velocity
+07: FirstNote
+08: LastNote
+09: LowestNote
+10: HighestNote
+
+*List5 (Arp Ratchet Speed List)
+00: 1/1
+01: 1/2
+02: 3/8
+03: 1/3
+04: 1/4
+05: 1/6
+06: 3/16
+07: 1/8
+08: 3/32
+09: 1/12
+10: 1/16
+11: 1/24
+12: 1/32
+13: 1/48
+14: 1/64
+15: 1/96
+16: 1/128
+
+*List6 (Gate Control List)
+00: Off
+01: Aftertouch
+02: ModWheel
+03: Pedal 1
+04: Pedal 2
+
+
+ [TABLE 2] Global Parameter
++---------+--------------------------------+--------------------------------------------+
+|         |     PARAMETER                  |                VALUE                       |
++---------+--------------------------------+--------------------------------------------+
+| Common parameters                                                                     |
++---------+--------------------------------+--------------------------------------------+
+| 0       | Global MIDI Ch.                | 0~15 = 1~16                                |
+| 1       | Controller Mode                | 0~11  *List7 (Controller Mode List)        |
++---------+--------------------------------+--------------------------------------------+
+| Controller                                                                            |
++---------+--------------------------------+--------------------------------------------+
+| Knob                                                                                  |
++---------+--------------------------------+--------------------------------------------+
+| 2       | Reserved                       |                                            |
++---------+--------------------------------+--------------------------------------------+
+| Keyboard                                                                              |
++---------+--------------------------------+--------------------------------------------+
+| 3       | Velocity Curve                 | 0~20 = -10 ~ +10                           |
+| 4       | AT Mode                        | 0~3 = Off/Channel/Polyphonic/MPE           |
+| 5       | AT Curve                       | 0~20 = -10 ~ +10                           |
+| 6       | AT Threshold                   | 0~127                                      |
+| 7       | AT Max                         | 0~127                                      |
++---------+--------------------------------+--------------------------------------------+
+| Pedal 1                                                                               |
++---------+--------------------------------+--------------------------------------------+
+| 8       | Assign Type                    | 0~1 = Damper Pedal / Expression Pedal      |
+| 9       | Assign Mode                    | 0~4  *List8 (Pedal Assign Mode List)       |
+| 10      | CC Number                      | 0~95, 102~119                              |
+| 11      | Curve                          | 0~20 = -10 ~ +10                           |
++---------+--------------------------------+--------------------------------------------+
+| Pedal 2                                                                               |
++---------+--------------------------------+--------------------------------------------+
+| 12      | Assign Type                    | 0~1 = Damper Pedal / Expression Pedal      |
+| 13      | Assign Mode                    | 0~4  *List8 (Pedal Assign Mode List)       |
+| 14      | CC Number                      | 0~95, 102~119                              |
+| 15      | Curve                          | 0~20  = -10 ~ +10                          |
++---------+--------------------------------+--------------------------------------------+
+| Power Management                                                                      |
++---------+--------------------------------+--------------------------------------------+
+| 16      | Contrast                       | 1~10                                       |
+| 17      | Auto Power Off                 | 0~4 = Disabled/1hour/2hours/3hours/4hours  |
+| 18      | Auto Screen Off                | 0~8  *List9 (Auto Screen Off List)         |
++---------+--------------------------------+--------------------------------------------+
+| User Chord Sets                                                                       |
++---------+--------------------------------+--------------------------------------------+
+| User Chord Set Name                                                                   |
++---------+--------------------------------+--------------------------------------------+
+| 19~24   | User Chord Set 1 Name          | null terminated                            |
++---------+--------------------------------+--------------------------------------------+
+| 25~210  | User Chord Set 2 ~ 32 Name     | (same as User Chord Set 1 Name)            |
++---------+--------------------------------+--------------------------------------------+
+| User Chord Set Data                                                                   |
++---------+--------------------------------+--------------------------------------------+
+| User Chord Set Data 1                                                                 |
++---------+--------------------------------+--------------------------------------------+
+| Key 1                                                                                 |
++---------+--------------------------------+--------------------------------------------+
+| 211     | Size                           | 0~8                                        |
+| 212~219 | Note Number                    | 0~127                                      |
++---------+--------------------------------+--------------------------------------------+
+| 220~228 | Key2                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 229~237 | Key3                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 238~246 | Key4                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 247~255 | Key5                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 256~264 | Key6                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 265~273 | Key7                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 274~282 | Key8                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 283~291 | Key9                           | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 292~299 | Key10                          | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 300~308 | Key11                          | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 309~317 | Key12                          | (same as Key1)                             |
++---------+--------------------------------+--------------------------------------------+
+| 318~3666| User Chord Set Data 2~32       | (same as User Chord Set Data 1)            |
++---------+--------------------------------+--------------------------------------------+
+
+Total 3667 bytes
+
+
+ [TABLE 3] Parameter Change Table
++-------+--------+------------------------------+---------------------------------------+
+| ID    | Sub ID |          PARAMETER           |                VALUE                  |
+| [Hex] | [Hex]  |                              |                                       |
++-------+--------+------------------------------+---------------------------------------+
+| 00    | 01     | BPM                          | 200~3000 = 20.0~300.0                 |
++-------+--------+------------------------------+---------------------------------------+
+
+
+*List7 (Controller Mode List)
+00: Assignable
+01: Logic
+02: GarageBand
+04: Ableton Live
+05: FL Studio
+06: Cubase
+07: Studio One
+09: Digital Performer
+10: Pro Tools
+11: Cakewalk
+
+*List8 (Pedal Assign Mode List)
+00: Damper
+01: Expression
+02: CC
+03: Program Up
+04: Program Down
+
+*List9 (Auto Screen Off List)
+00: Disabled
+01: 1min
+02: 5min
+03: 15min
+04: 30min
+05: 1hour
+06: 2hours
+07: 3hours
+08: 4hours
+
+
+
+--------------------------------------------------------------------------------
+ 4. KORG Native Mode Messages
+--------------------------------------------------------------------------------
+
+(1) Native Mode Keyboard Output
++--------+--------+-------+--------------------------------------+
+| Status | Second | Third |  Description                         |
+| [Hex]  | [Hex]  | [Hex] |                                      |
++--------+--------+-------+--------------------------------------+
+|   90   |  kk    |  vv   |  Note On  vv:velocity(1~127)         |
+|   80   |  kk    |  xx   |  Note Off xx:velocity(1~64)          |
++--------+--------+-------+--------------------------------------+
+
+(2) Native Mode Wheel Output
++--------+--------+-------+--------------------------------------+
+| Status | Second | Third |  Description                         |
+| [Hex]  | [Hex]  | [Hex] |                                      |
++--------+--------+-------+--------------------------------------+
+|   B0   |  01    |  vv   |  Modulation Wheel     (vv: 0~127)    |
+|   E0   |  vv    |  vv   |  Pitch Bend Wheel     (vv: 0~127)    |
++--------+--------+-------+--------------------------------------+
+
+(3) Native Mode Pedals Output
++--------+--------+-------+--------------------------------------+
+| Status | Second | Third |  Description                         |
+| [Hex]  | [Hex]  | [Hex] |                                      |
++--------+--------+-------+--------------------------------------+
+|   B0   |  0B    |  vv   |  Expression Pedal     (vv: 0~127)    |
++--------+--------+-------+--------------------------------------+
+|   B0   |  40    |  vv   |  Damper Pedal         (vv: 0~127)    |
++--------+--------+-------+--------------------------------------+
+|   B1   |  ii *6 |  vv   |  Pedal Control Change (vv: 0~127)    |
++--------+--------+-------+--------------------------------------+
+|   C0   |  vv    |       |  Pedal Program Change (vv: 0~127)    |
++--------+--------+-------+--------------------------------------+
+*6: ii(0~127) depends on the global setting
+
+(4) Native Mode Volume Knobs Output
++--------+--------+-------+--------------------------------------+
+| Status | Second | Third |  Description                         |
+| [Hex]  | [Hex]  | [Hex] |                                      |
++--------+--------+-------+--------------------------------------+
+|   BF   |  00    |  vv   |  Knob1 (vv: 0~127)                   |
++--------+--------+-------+--------------------------------------+
+|   BF   |  01    |  vv   |  Knob2                               |
++--------+--------+-------+--------------------------------------+
+|   BF   |  02    |  vv   |  Knob3                               |
++--------+--------+-------+--------------------------------------+
+|   BF   |  03    |  vv   |  Knob4                               |
++--------+--------+-------+--------------------------------------+
+|   BF   |  04    |  vv   |  Knob5                               |
++--------+--------+-------+--------------------------------------+
+|   BF   |  05    |  vv   |  Knob6                               |
++--------+--------+-------+--------------------------------------+
+|   BF   |  06    |  vv   |  Knob7                               |
++--------+--------+-------+--------------------------------------+
+|   BF   |  07    |  vv   |  Knob8                               |
++--------+--------+-------+--------------------------------------+
+
+
+(5) Native Mode Transport Controllers Output
++--------+--------+-------+-------------------------------------------------------------+
+| Status | Second | Third |  Description                                                |
+| [Hex]  | [Hex]  | [Hex] |                                                             |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  29    |  ss   |  PLAY   ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  2A    |  ss   |  STOP   ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  2D    |  ss   |  REC    ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  2E    |  ss   |  LOOP   ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  2F    |  ss   |  TEMPO  ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  30    |  ss   |  METRO  ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  31    |  ss   |  UNDO   ss:on/off (on=127 Off=00)                           |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  3C    |  ss   |  VALUE DOWN BUTTON  ss:on/off (on=127 Off=00)               |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  3D    |  ss   |  VALUE UP BUTTON    ss:on/off (on=127 Off=00)               |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  3A    |  ss   |  NEXT TRACK         ss:on/off (on=127 Off=00)               |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  3B    |  ss   |  PREVIOUS TRACK     ss:on/off (on=127 Off=00)               |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  3E    |  7F   |  turn VALUE KNOB left                                       |
+|        |        |  00   |  (Transmit [BF 3E 7F] and [BF 3E 00] in this order at once) |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  3F    |  7F   |  turn VALUE KNONB right                                     |
+|        |        |  00   |  (Transmit [BF 3F 7F] and [BF 3F 00] in this order at once) |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  2B    |  7F   |  REWIND                                                     |
+|        |        |  00   |  (Transmit [BF 2B 7F] and [BF 2B 00] in this order at once) |
++--------+--------+-------+-------------------------------------------------------------+
+|   BF   |  2C    |  7F   |  FORWARD                                                    |
+|        |        |  00   |  (Transmit [BF 2C 7F] and [BF 2C 00] in this order at once) |
++--------+--------+-------+-------------------------------------------------------------+
+
+ * each button LED is turned on/off when the Keystage received corresponding control change
+ with ss=127/00
+
+
+(6) Value Notification (from host to Keystage) for Volume Knobs
++--------+------------------+--------------------------------------+
+| Status | Second   | Third |   Description                        |
+| [Hex]  | [Hex]    | [Hex] |                                      |
++--------+----------+-------+--------------------------------------+
+|   BE   |  00      |  vv   |   Knob1 (vv: 0~127)                  |
++--------+----------+-------+--------------------------------------+
+|   BE   |  01      |  vv   |   Knob2                              |
++--------+----------+-------+--------------------------------------+
+|   BE   |  02      |  vv   |   Knob3                              |
++--------+----------+-------+--------------------------------------+
+|   BE   |  03      |  vv   |   Knob4                              |
++--------+----------+-------+--------------------------------------+
+|   BE   |  04      |  vv   |   Knob5                              |
++--------+----------+-------+--------------------------------------+
+|   BE   |  05      |  vv   |   Knob6                              |
++--------+----------+-------+--------------------------------------+
+|   BE   |  06      |  vv   |   Knob7                              |
++--------+----------+-------+--------------------------------------+
+|   BE   |  07      |  vv   |   Knob8                              |
++--------+----------+-------+--------------------------------------+

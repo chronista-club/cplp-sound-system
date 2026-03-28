@@ -48,6 +48,9 @@ pub extern "C" fn cplp_audio_start() -> CplpResult {
         None => return CplpResult::NotInitialized,
     };
 
+    // NoteReceiver を engine lock の前に take（ロック順序の一貫性を保つ）
+    let note_recv = crate::midi_note_recv().lock().unwrap().take();
+
     // Mutex 内で二重起動チェック + start を原子的に行う（TOCTOU 防止）
     match rt.engine.lock() {
         Ok(mut engine) => {
@@ -56,24 +59,75 @@ pub extern "C" fn cplp_audio_start() -> CplpResult {
                 return CplpResult::Ok;
             }
 
-            let mut phase: f32 = 0.0;
-            let freq = 440.0_f32;
             let sample_rate = rt.config.audio.sample_rate as f32;
+            let mut note_recv = note_recv;
+
+            // RT-safe 固定サイズポリフォニックシンセ
+            const MAX_VOICES: usize = 16;
+            let mut voices = [(0u8, 0.0f32, 0.0f32, false); MAX_VOICES];
 
             let source = move |data: &mut [f32]| {
+                // MIDI イベントを drain
+                if let Some(ref mut recv) = note_recv {
+                    loop {
+                        match recv.try_pop() {
+                            Some(evt) => {
+                                let status = evt.status & 0xF0;
+                                let key = evt.key;
+                                let vel = evt.velocity;
+                                if status == 0x90 && vel > 0 {
+                                    let gain = vel as f32 / 127.0;
+                                    let mut found = false;
+                                    for v in voices.iter_mut() {
+                                        if v.3 && v.0 == key {
+                                            v.2 = gain;
+                                            found = true;
+                                            break;
+                                        }
+                                    }
+                                    if !found {
+                                        for v in voices.iter_mut() {
+                                            if !v.3 {
+                                                *v = (key, 0.0, gain, true);
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } else if status == 0x80 || (status == 0x90 && vel == 0) {
+                                    for v in voices.iter_mut() {
+                                        if v.3 && v.0 == key {
+                                            v.3 = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                }
+
                 let mut peak_l: f32 = 0.0;
                 let mut peak_r: f32 = 0.0;
 
                 for frame in data.chunks_exact_mut(2) {
-                    let sample = (phase * std::f32::consts::TAU).sin() * 0.3;
-                    phase += freq / sample_rate;
-                    if phase >= 1.0 {
-                        phase -= 1.0;
+                    let mut mix = 0.0_f32;
+                    for voice in voices.iter_mut() {
+                        if voice.3 {
+                            let freq =
+                                440.0 * (2.0_f32).powf((voice.0 as f32 - 69.0) / 12.0);
+                            let s = (voice.1 * std::f32::consts::TAU).sin() * voice.2 * 0.2;
+                            voice.1 += freq / sample_rate;
+                            if voice.1 >= 1.0 {
+                                voice.1 -= 1.0;
+                            }
+                            mix += s;
+                        }
                     }
-                    frame[0] = sample;
-                    frame[1] = sample;
-                    peak_l = peak_l.max(sample.abs());
-                    peak_r = peak_r.max(sample.abs());
+                    frame[0] = mix;
+                    frame[1] = mix;
+                    peak_l = peak_l.max(mix.abs());
+                    peak_r = peak_r.max(mix.abs());
                 }
 
                 METER_LEFT.store(peak_l, Ordering::Release);

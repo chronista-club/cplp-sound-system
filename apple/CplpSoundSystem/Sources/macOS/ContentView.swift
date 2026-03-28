@@ -7,6 +7,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
     case mixer = "Mixer"
     case audio = "Audio"
     case scene = "Scene"
+    case midi = "MIDI"
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum SidebarItem: String, CaseIterable, Identifiable {
         case .mixer: return "slider.horizontal.3"
         case .audio: return "speaker.wave.2"
         case .scene: return "cube"
+        case .midi: return "pianokeys"
         }
     }
 }
@@ -24,6 +26,8 @@ enum SidebarItem: String, CaseIterable, Identifiable {
 
 struct ContentView: View {
     @EnvironmentObject var client: CplpClient
+    @Environment(\.openWindow) private var openWindow
+    @Environment(KeystageManager.self) private var keystageManager: KeystageManager?
     @State private var selectedItem: SidebarItem? = .session
 
     var body: some View {
@@ -67,6 +71,9 @@ struct ContentView: View {
                 #else
                 Text("Scene view is only available on macOS.")
                 #endif
+            case .midi:
+                MidiOverviewView()
+                    .environment(keystageManager)
             case nil:
                 Text("Select an item from the sidebar.")
                     .foregroundStyle(.secondary)
