@@ -30,7 +30,21 @@ pub struct SceneRenderer {
 
 impl SceneRenderer {
     /// デバイスとサーフェスフォーマットからレンダラーを作成
+    ///
+    /// `graph` が Some なら AudioGraph のノードをモジュールとして配置する。
+    /// None ならデフォルトの AudioGraph を使用する。
     pub fn new(device: &wgpu::Device, surface_format: wgpu::TextureFormat, width: u32, height: u32) -> Self {
+        Self::with_graph(device, surface_format, width, height, None)
+    }
+
+    /// AudioGraph を指定してレンダラーを作成
+    pub fn with_graph(
+        device: &wgpu::Device,
+        surface_format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+        graph: Option<&cplp_core::audio_graph::AudioGraph>,
+    ) -> Self {
         let mut pipeline = MeshPipeline::new(device, surface_format);
 
         let aspect = if height > 0 {
@@ -49,7 +63,9 @@ impl SceneRenderer {
         let rack_rows: u32 = 2;
 
         let mut editor = PlacementEditor::new(rack_hp, rack_rows, width, height);
-        let frame_object_count = build_rack_scene(&mut pipeline, &mut selection, &mut editor, device);
+        let default_graph = cplp_core::audio_graph::AudioGraph::default_setup();
+        let graph_ref = graph.unwrap_or(&default_graph);
+        let frame_object_count = build_rack_scene(&mut pipeline, &mut selection, &mut editor, device, graph_ref);
 
         // ゴーストパネルを追加
         let ghost_count = add_ghost_panels(&mut pipeline, &editor, device);
@@ -288,6 +304,7 @@ fn build_rack_scene(
     selection: &mut SelectionState,
     editor: &mut PlacementEditor,
     device: &wgpu::Device,
+    graph: &cplp_core::audio_graph::AudioGraph,
 ) -> usize {
     let rack_hp = editor.rack_hp;
     let rack_rows = editor.rack_rows;
@@ -301,7 +318,6 @@ fn build_rack_scene(
     }
 
     // AudioGraph からモジュールを生成
-    let graph = cplp_core::audio_graph::AudioGraph::default_setup();
     let mut hp_pos: u32 = 0;
     let row: u32 = 0;
 

@@ -5,6 +5,7 @@
 
 pub mod audio;
 mod error;
+pub mod graph;
 pub mod midi;
 mod mixer;
 mod scene;
@@ -15,6 +16,7 @@ use std::sync::{Arc, Mutex, RwLock};
 
 use cplp_audio::engine::AudioEngine;
 use cplp_audio::plugin_host::{NoteController, NoteReceiver, note_channel};
+use cplp_core::audio_graph::AudioGraph;
 use cplp_core::config::AppConfig;
 use cplp_core::MixerState;
 use types::{CplpResult, CplpSessionStatus, CplpVersion};
@@ -45,6 +47,8 @@ pub(crate) struct CplpRuntime {
     pub mixer: Mutex<MixerState>,
     /// MIDI ノートコントローラ（Swift → Rust の MIDI 入力用）
     pub note_ctrl: Mutex<NoteController>,
+    /// AudioGraph — オーディオ/MIDI ルーティングの SSOT
+    pub graph: Mutex<AudioGraph>,
 }
 
 /// FFI 側で管理するセッション状態
@@ -112,6 +116,7 @@ pub extern "C" fn cplp_init() -> CplpResult {
         }),
         mixer: Mutex::new(MixerState::new()),
         note_ctrl: Mutex::new(note_ctrl),
+        graph: Mutex::new(AudioGraph::default_setup()),
     });
 
     // RwLock write で排他的にアクセス — TOCTOU 不可能

@@ -90,7 +90,17 @@ pub unsafe extern "C" fn cplp_scene_attach(
             .ok_or_else(|| anyhow::anyhow!("Surface not compatible"))?;
         surface.configure(&device, &config);
 
-        let renderer = SceneRenderer::new(&device, config.format, width, height);
+        // CplpRuntime の AudioGraph を参照してレンダラーに渡す
+        let graph = crate::runtime().and_then(|rt| {
+            rt.graph.lock().ok().map(|g| g.clone())
+        });
+        let renderer = SceneRenderer::with_graph(
+            &device,
+            config.format,
+            width,
+            height,
+            graph.as_ref(),
+        );
         let depth_view = renderer::create_depth_texture(&device, width, height);
 
         Ok::<_, anyhow::Error>(SceneState {

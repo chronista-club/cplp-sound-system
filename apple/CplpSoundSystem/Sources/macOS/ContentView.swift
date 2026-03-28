@@ -1,3 +1,4 @@
+import CplpBridge
 import SwiftUI
 
 // MARK: - ContentView
@@ -104,8 +105,12 @@ struct PluginPickerView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(client.plugins) { plugin in
                             Button {
-                                // TODO: AudioGraph にノード追加 → ラックに反映
-                                print("[Plugin] Selected: \(plugin.name) (\(plugin.id))")
+                                plugin.id.withCString { idPtr in
+                                    plugin.name.withCString { namePtr in
+                                        let nodeId = cplp_graph_add_plugin(idPtr, namePtr, true)
+                                        print("[Plugin] Added \(plugin.name) as node \(nodeId)")
+                                    }
+                                }
                             } label: {
                                 HStack {
                                     Image(systemName: "waveform")

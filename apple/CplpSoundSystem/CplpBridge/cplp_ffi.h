@@ -151,6 +151,20 @@ void cplp_plugin_list_free(struct CplpPluginList list);
 // 呼び出しまでポインタは安全。
 const char *cplp_last_error(void);
 
+// AudioGraph にプラグインノードを追加
+//
+// 戻り値: 追加されたノードの ID（0 はエラー）
+uint32_t cplp_graph_add_plugin(const char *plugin_id, const char *plugin_name, bool is_instrument);
+
+// AudioGraph のノード数を取得
+uint32_t cplp_graph_node_count(void);
+
+// AudioGraph からノードを削除
+enum CplpResult cplp_graph_remove_node(uint32_t node_id);
+
+// 2つのノードを接続
+enum CplpResult cplp_graph_connect(uint32_t from_node, uint32_t to_node, bool is_midi);
+
 // MIDI NoteOn を送信
 //
 // Swift の CoreMIDI コールバックから呼ばれる。
