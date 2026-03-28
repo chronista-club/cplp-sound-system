@@ -93,17 +93,20 @@ final class CplpClient: ObservableObject {
 
     func scanPlugins() {
         let list = cplp_audio_scan_plugins()
+        print("[CplpClient] scanPlugins: count=\(list.count), items=\(String(describing: list.items))")
         var entries: [PluginEntry] = []
         if let items = list.items {
             for i in 0..<Int(list.count) {
                 let info = items[i]
                 let id = info.id.map { String(cString: $0) } ?? ""
                 let name = info.name.map { String(cString: $0) } ?? ""
+                print("[CplpClient] plugin[\(i)]: \(name) (\(id))")
                 entries.append(PluginEntry(id: id, name: name))
             }
         }
         plugins = entries
         cplp_plugin_list_free(list)
+        print("[CplpClient] scanPlugins done: \(plugins.count) plugins")
     }
 
     // MARK: - セッション

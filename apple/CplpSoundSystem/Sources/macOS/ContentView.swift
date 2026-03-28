@@ -5,6 +5,7 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject var client: CplpClient
     @Environment(\.openWindow) private var openWindow
+    @State private var showPluginPicker = false
 
     var body: some View {
         ZStack {
@@ -43,6 +44,17 @@ struct ContentView: View {
                             }
                         }
 
+                        ToolbarButton(icon: "plus.rectangle", label: "Plugin") {
+                            if client.plugins.isEmpty {
+                                client.scanPlugins()
+                            }
+                            showPluginPicker.toggle()
+                        }
+                        .popover(isPresented: $showPluginPicker) {
+                            PluginPickerView()
+                                .environmentObject(client)
+                        }
+
                         ToolbarButton(icon: "pianokeys", label: "MIDI") {
                             openWindow(id: "midi-console")
                         }
@@ -57,6 +69,64 @@ struct ContentView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 500)
+    }
+}
+
+// MARK: - PluginPickerView
+
+struct PluginPickerView: View {
+    @EnvironmentObject var client: CplpClient
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("CLAP Plugins")
+                    .font(.headline)
+                Spacer()
+                Button {
+                    client.scanPlugins()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+            }
+
+            Divider()
+
+            if client.plugins.isEmpty {
+                Text("No plugins found.\nScan to detect CLAP plugins.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 16)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(client.plugins) { plugin in
+                            Button {
+                                // TODO: AudioGraph にノード追加 → ラックに反映
+                                print("[Plugin] Selected: \(plugin.name) (\(plugin.id))")
+                            } label: {
+                                HStack {
+                                    Image(systemName: "waveform")
+                                        .foregroundStyle(.secondary)
+                                    Text(plugin.name)
+                                        .font(.body)
+                                    Spacer()
+                                }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
+                }
+                .frame(maxHeight: 300)
+            }
+        }
+        .padding(12)
+        .frame(width: 280)
     }
 }
 
