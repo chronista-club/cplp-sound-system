@@ -156,14 +156,28 @@ pub extern "C" fn cplp_destroy() -> CplpResult {
     }
 }
 
-/// バージョン情報を取得
+/// バージョン情報を取得（Cargo.toml から自動取得）
 #[unsafe(no_mangle)]
 pub extern "C" fn cplp_version() -> CplpVersion {
+    const MAJOR: u32 = const_parse_u32(env!("CARGO_PKG_VERSION_MAJOR"));
+    const MINOR: u32 = const_parse_u32(env!("CARGO_PKG_VERSION_MINOR"));
+    const PATCH: u32 = const_parse_u32(env!("CARGO_PKG_VERSION_PATCH"));
     CplpVersion {
-        major: 0,
-        minor: 1,
-        patch: 0,
+        major: MAJOR,
+        minor: MINOR,
+        patch: PATCH,
     }
+}
+
+const fn const_parse_u32(s: &str) -> u32 {
+    let bytes = s.as_bytes();
+    let mut result: u32 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        result = result * 10 + (bytes[i] - b'0') as u32;
+        i += 1;
+    }
+    result
 }
 
 #[cfg(test)]
@@ -237,9 +251,10 @@ mod tests {
     #[serial]
     fn test_version_returns_correct_values() {
         let v = cplp_version();
-        assert_eq!(v.major, 0);
-        assert_eq!(v.minor, 1);
-        assert_eq!(v.patch, 0);
+        // Cargo.toml のバージョンと一致することを確認
+        assert_eq!(v.major, const_parse_u32(env!("CARGO_PKG_VERSION_MAJOR")));
+        assert_eq!(v.minor, const_parse_u32(env!("CARGO_PKG_VERSION_MINOR")));
+        assert_eq!(v.patch, const_parse_u32(env!("CARGO_PKG_VERSION_PATCH")));
     }
 
     #[test]
