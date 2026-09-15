@@ -1,5 +1,4 @@
-[tools]
-rust = "1.94.0"
+# rust toolchain は rust-toolchain.toml で pin (mise はタスクランナー専用)。
 
 [env]
 CPLP_ROOT = "{{config_root}}"

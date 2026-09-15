@@ -55,6 +55,10 @@ jobs:
   audit:
     name: Audit
     runs-on: ubuntu-latest
+    env:
+      # cargo-audit のビルドは rust-toolchain.toml (1.94.0) ではなく runner の stable で行う。
+      # cargo-audit の依存 (kstring 等) が rustc 1.96+ を要求するため。
+      RUSTUP_TOOLCHAIN: stable
     steps:
       - uses: actions/checkout@v4
 
